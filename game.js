@@ -15,7 +15,7 @@ let ether = 0;
 //let gameOver = false;
 
 let orbPushTime = 0;
-let zapEffect = [];
+let zapEffects = [];
 
 let gameState = "playing"; 
 // "playing" | "gameover" | "upgrades"
@@ -45,6 +45,8 @@ let upgrades = {
 };
 
 let damage = upgrades.damage.level;
+let screenShake = 0;
+let screenFlash = 0;
 
 
 
@@ -164,13 +166,15 @@ function updateDifficulty() {
   const elapsed = (Date.now() - startTime) / 1000;
 
   // increase spawn rate
-  spawnRate = Math.max(500, 2000 - elapsed * 50);
+  spawnRate = Math.max(50, 2000 - elapsed * 50);
 
   // increase speed
   ghostSpeed = 1 + elapsed * 0.05;
 }
 
 function gameLoop() {
+
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (gameState === "playing") {
@@ -197,6 +201,7 @@ function gameLoop() {
     drawUpgradeScreen();
   }
   drawZap();
+  
   requestAnimationFrame(gameLoop);
 }
 
@@ -236,23 +241,60 @@ function drawGameOverScreen() {
 }
 
 function drawZap() {
-  for (let i = zapEffect.length - 1; i >= 0; i--) {
-    let z = zapEffect[i];
+  for (let i = zapEffects.length - 1; i >= 0; i--) {
+    let z = zapEffects[i];
 
-    ctx.strokeStyle = "yellow";
+    ctx.strokeStyle = "rgba(255,255,150,0.9)";
     ctx.lineWidth = 2;
 
     ctx.beginPath();
-    ctx.moveTo(z.x1, z.y1);
-    ctx.lineTo(z.x2, z.y2);
+    ctx.moveTo(z.points[0].x, z.points[0].y);
+
+    for (let p = 1; p < z.points.length; p++) {
+      ctx.lineTo(z.points[p].x, z.points[p].y);
+    }
+
     ctx.stroke();
 
     z.life--;
 
     if (z.life <= 0) {
-      zapEffect.splice(i, 1);
+      zapEffects.splice(i, 1);
     }
   }
+}
+
+function createLightning(x1, y1, x2, y2) {
+  const segments = 8;
+  const amplitude = 78;
+
+  let points = [{ x: x1, y: y1 }];
+
+  for (let i = 1; i < segments; i++) {
+    let t = i / segments;
+
+    let x = x1 + (x2 - x1) * t;
+    let y = y1 + (y2 - y1) * t;
+
+    // perpendicular offset
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let len = Math.hypot(dx, dy);
+
+    let nx = -dy / len;
+    let ny = dx / len;
+
+    let offset = (Math.random() - 0.5) * amplitude;
+
+    x += nx * offset;
+    y += ny * offset;
+
+    points.push({ x, y });
+  }
+
+  points.push({ x: x2, y: y2 });
+
+  return points;
 }
 
 function startNewRun() {
@@ -273,19 +315,23 @@ function zapGhosts() {
 
   const hits = 1 + upgrades.chain.level;
 
+  let lastX = center.x;
+  let lastY = center.y;
+
   for (let i = 0; i < hits && i < targets.length; i++) {
     let g = targets[i];
 
-    // ⚡ CREATE VISUAL HERE (THIS WAS MISSING)
-    zapEffect.push({
-      x1: center.x,
-      y1: center.y,
-      x2: g.x,
-      y2: g.y,
-      life: 15
+    // ⚡ create arc from previous target
+    zapEffects.push({
+      points: createLightning(lastX, lastY, g.x, g.y),
+      life: 12
     });
 
-    // 💥 DAMAGE
+    // update chain origin
+    lastX = g.x;
+    lastY = g.y;
+
+    // damage
     g.hp -= upgrades.damage.level;
 
     if (g.hp <= 0) {
@@ -296,6 +342,10 @@ function zapGhosts() {
       }
     }
   }
+
+  // 💥 trigger feedback
+  screenFlash = 5;
+  screenShake = 6;
 }
 
 function drawUpgradeScreen() {
