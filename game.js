@@ -10,6 +10,7 @@ const center = {
   radius: 30
 };
 
+
 let ghosts = [];
 let ether = 0;
 //let gameOver = false;
@@ -17,7 +18,7 @@ let ether = 0;
 let orbPushTime = 0;
 let zapEffects = [];
 
-let gameState = "playing"; 
+let gameState = "upgrades"; 
 // "playing" | "gameover" | "upgrades"
 
 
@@ -48,42 +49,84 @@ let damage = upgrades.damage.level;
 let screenShake = 0;
 let screenFlash = 0;
 
+let damageTypes = {
+  lightning: { unlocked: true, cost: 0 },
+  fire: { unlocked: false, cost: 100 },
+  ice: { unlocked: false, cost: 1000 },
+  rock: { unlocked: false, cost: 10000 }
+};
+
+let currentType = "lightning";
 
 
-function spawnGhost() {
+function getDamageMultiplier(enemy) {
+  if (enemy.type === "triangle" && currentType === "fire") return 2;
+  if (enemy.type === "square" && currentType === "rock") return 2;
+  if (enemy.type === "pentagon" && currentType === "ice") return 2;
+
+  return 1;
+}
+
+function spawnEnemy() {
+  if (ghosts.length >= 50) return;
+
+  const elapsed = (Date.now() - startTime) / 1000;
+
+  let type = "ghost";
+
+  if (elapsed > 120) {
+    type = "pentagon";
+  } else if (elapsed > 60) {
+    type = Math.random() < 0.5 ? "square" : "ghost";
+  } else if (elapsed > 30) {
+    type = Math.random() < 0.5 ? "triangle" : "ghost";
+  }
+
+  // limits
+  const squareCount = ghosts.filter(g => g.type === "square").length;
+  const pentagonCount = ghosts.filter(g => g.type === "pentagon").length;
+
+  if (type === "square") {
+    const maxSquares = 1 + Math.floor(elapsed / 60);
+    if (squareCount >= maxSquares) type = "ghost";
+  }
+
+  if (type === "pentagon" && pentagonCount >= 20) return;
+
   const edge = Math.floor(Math.random() * 4);
 
   let x, y;
 
-  if (edge === 0) { // top
-    x = Math.random() * canvas.width;
-    y = 0;
-  } else if (edge === 1) { // right
-    x = canvas.width;
-    y = Math.random() * canvas.height;
-  } else if (edge === 2) { // bottom
-    x = Math.random() * canvas.width;
-    y = canvas.height;
-  } else { // left
-    x = 0;
-    y = Math.random() * canvas.height;
-  }
+  if (edge === 0) { x = Math.random() * canvas.width; y = 0; }
+  else if (edge === 1) { x = canvas.width; y = Math.random() * canvas.height; }
+  else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height; }
+  else { x = 0; y = Math.random() * canvas.height; }
+
+  let hp = getGhostHP();
+
+  if (type === "triangle") hp = Math.floor(hp * 0.6);
+  if (type === "pentagon") hp = Math.floor(hp * 3);
 
   ghosts.push({
     x,
     y,
-    hp: 3,
+    hp,
+    type,
+    hitFlash: 0
   });
 }
 
 function updateGhosts() {
   ghosts.forEach((ghost, index) => {
+
+    let speed = ghostSpeed;
+    if (ghost.type === "triangle") speed *= 1.8;
     const dx = center.x - ghost.x;
     const dy = center.y - ghost.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    const vx = (dx / dist) * ghostSpeed;
-    const vy = (dy / dist) * ghostSpeed;
+    const vx = (dx / dist) * speed;
+    const vy = (dy / dist) * speed;
 
     ghost.x += vx;
     ghost.y += vy;
@@ -91,8 +134,16 @@ function updateGhosts() {
     // collision with orb → game over
     if (dist < center.radius) {
       gameState = "gameover";
+      saveGame();
     }
   });
+}
+
+function getGhostHP() {
+  const elapsed = (Date.now() - startTime) / 1000;
+
+  // increase over time, capped at 15
+  return Math.min(15, Math.floor(3 + elapsed * 0.5));
 }
 
 canvas.addEventListener("click", (e) => {
@@ -106,22 +157,47 @@ canvas.addEventListener("click", (e) => {
   // =========================
   if (gameState === "upgrades") {
 
-    upgradeCards.forEach(card => {
-      if (
-        mx > card.x &&
-        mx < card.x + card.w &&
-        my > card.y &&
-        my < card.y + card.h
-      ) {
-        let upg = upgrades[card.key];
+upgradeCards.forEach(card => {
 
-        if (ether >= upg.cost) {
-          ether -= upg.cost;
-          upg.level++;
-          upg.cost = Math.floor(upg.cost * 1.5);
-        }
+  // ✅ ONLY run logic if the card was clicked
+  if (
+    mx > card.x &&
+    mx < card.x + card.w &&
+    my > card.y &&
+    my < card.y + card.h
+  ) {
+
+    // =========================
+    // NORMAL UPGRADES
+    // =========================
+    if (card.key) {
+      let upg = upgrades[card.key];
+
+      if (upg && ether >= upg.cost) {
+        ether -= upg.cost;
+        upg.level++;
+        upg.cost = Math.floor(upg.cost * 1.5);
       }
-    });
+    }
+
+    // =========================
+    // DAMAGE TYPES
+    // =========================
+    if (card.type) {
+      let t = damageTypes[card.type];
+
+      if (!t.unlocked && ether >= t.cost) {
+        ether -= t.cost;
+        t.unlocked = true;
+      }
+
+      if (t.unlocked) {
+        currentType = card.type;
+      }
+    }
+
+  }
+});
 
     // start run button
     if (
@@ -182,15 +258,16 @@ function gameLoop() {
 
     const now = Date.now();
     if (now - lastSpawn > spawnRate) {
-      spawnGhost();
+      spawnEnemy();
       lastSpawn = now;
     }
 
     updateGhosts();
-
+    
     drawOrb();
     drawGhosts();
     drawUI();
+    drawTimer();
   }
 
   else if (gameState === "gameover") {
@@ -220,11 +297,63 @@ function drawOrb() {
 }
 
 function drawGhosts() {
-  ghosts.forEach(ghost => {
+  ghosts.forEach(g => {
+
+    let baseColor = "white";
+
+    if (g.type === "triangle") baseColor = "green";
+    else if (g.type === "square") baseColor = "blue";
+    else if (g.type === "pentagon") baseColor = "maroon";
+
+    ctx.fillStyle = g.hitFlash > 0 ? "purple" : baseColor;
+
+    // ✅ APPLY GLOW BEFORE DRAWING
+    if (g.hitFlash > 0) {
+      ctx.shadowColor = "purple";
+      ctx.shadowBlur = 10;
+      g.hitFlash--;
+    } else {
+      ctx.shadowBlur = 0;
+    }
+
     ctx.beginPath();
-    ctx.arc(ghost.x, ghost.y, 15, 0, Math.PI * 2);
-    ctx.fillStyle = "white";
+
+    if (g.type === "triangle") {
+      ctx.moveTo(g.x, g.y - 15);
+      ctx.lineTo(g.x - 15, g.y + 15);
+      ctx.lineTo(g.x + 15, g.y + 15);
+      ctx.closePath();
+    }
+
+    else if (g.type === "square") {
+      ctx.rect(g.x - 15, g.y - 15, 30, 30);
+    }
+
+    else if (g.type === "pentagon") {
+      for (let i = 0; i < 5; i++) {
+        let angle = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+        let x = g.x + Math.cos(angle) * 15;
+        let y = g.y + Math.sin(angle) * 15;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    }
+
+    else {
+      ctx.arc(g.x, g.y, 15, 0, Math.PI * 2);
+    }
+
+    // ✅ FILL FIRST
     ctx.fill();
+
+    // ✅ OUTLINE AFTER FILL
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // ✅ RESET SHADOW (VERY IMPORTANT)
+    ctx.shadowBlur = 0;
   });
 }
 
@@ -238,6 +367,7 @@ function drawGameOverScreen() {
   ctx.fillStyle = "red";
   ctx.font = "50px Arial";
   ctx.fillText("Game Over", canvas.width / 2 - 120, canvas.height / 2);
+  
 }
 
 function drawZap() {
@@ -313,7 +443,12 @@ function zapGhosts() {
     return da - db;
   });
 
-  const hits = 1 + upgrades.chain.level;
+  let hits = 1 + upgrades.chain.level;
+
+  // ❗ if ANY square exists → disable chain
+  if (ghosts.some(g => g.type === "square")) {
+    hits = 1;
+  }
 
   let lastX = center.x;
   let lastY = center.y;
@@ -321,18 +456,19 @@ function zapGhosts() {
   for (let i = 0; i < hits && i < targets.length; i++) {
     let g = targets[i];
 
-    // ⚡ create arc from previous target
+    const mult = getDamageMultiplier(g);
+    const dmg = upgrades.damage.level * mult;
+
     zapEffects.push({
       points: createLightning(lastX, lastY, g.x, g.y),
       life: 12
     });
 
-    // update chain origin
+    g.hp -= dmg;
+    g.hitFlash = 5;
+
     lastX = g.x;
     lastY = g.y;
-
-    // damage
-    g.hp -= upgrades.damage.level;
 
     if (g.hp <= 0) {
       const index = ghosts.indexOf(g);
@@ -343,9 +479,27 @@ function zapGhosts() {
     }
   }
 
-  // 💥 trigger feedback
   screenFlash = 5;
   screenShake = 6;
+}
+
+function drawTimer() {
+  if (gameState !== "playing") return;
+
+  const elapsed = (Date.now() - startTime) / 1000;
+
+  // format to 1 decimal place
+  const timeText = elapsed.toFixed(1) + "s";
+
+  ctx.fillStyle = "white";
+  ctx.font = "20px Arial";
+
+  // align to top-right
+  ctx.textAlign = "right";
+  ctx.fillText(timeText, canvas.width - 20, 30);
+
+  // reset alignment so it doesn't break other text
+  ctx.textAlign = "left";
 }
 
 function drawUpgradeScreen() {
@@ -377,6 +531,33 @@ function drawUpgradeScreen() {
 
     upgradeCards.push(card);
 
+    let typeY = y + Object.keys(upgrades).length * 120 + 40;
+
+Object.keys(damageTypes).forEach((type, i) => {
+  let t = damageTypes[type];
+
+  let card = {
+    x: startX,
+    y: typeY + i * 80,
+    w: 300,
+    h: 60,
+    type: type
+  };
+
+  upgradeCards.push(card);
+
+  ctx.fillStyle = currentType === type ? "cyan" : "#333";
+  ctx.fillRect(card.x, card.y, card.w, card.h);
+
+  ctx.fillStyle = "white";
+  ctx.fillText(
+    type.toUpperCase() +
+    (t.unlocked ? " (Owned)" : " Cost: " + t.cost),
+    card.x + 10,
+    card.y + 35
+  );
+});
+
     // Draw card
     ctx.fillStyle = "#222";
     ctx.fillRect(card.x, card.y, card.w, card.h);
@@ -391,10 +572,12 @@ function drawUpgradeScreen() {
     ctx.fillText("Cost: " + upg.cost, card.x + 10, card.y + 75);
   });
 
+
+
   // Start button
   startButton = {
-    x: canvas.width / 2 - 100,
-    y: canvas.height - 120,
+    x: canvas.width - 600,
+    y: canvas.height - 725,
     w: 200,
     h: 60
   };
@@ -407,4 +590,25 @@ function drawUpgradeScreen() {
   ctx.fillText("Start Run", startButton.x + 40, startButton.y + 35);
 }
 
+function saveGame() {
+  const saveData = {
+    ether: ether,
+    upgrades: upgrades
+  };
+
+  localStorage.setItem("orbGameSave", JSON.stringify(saveData));
+}
+
+function loadGame() {
+  const data = localStorage.getItem("orbGameSave");
+
+  if (!data) return;
+
+  const saveData = JSON.parse(data);
+
+  ether = saveData.ether || 0;
+  upgrades = saveData.upgrades || upgrades;
+}
+
+loadGame();
 gameLoop();
