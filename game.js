@@ -12,10 +12,13 @@ const center = {
 
 let ghosts = [];
 let ether = 0;
-let gameOver = false;
+//let gameOver = false;
 
 let orbPushTime = 0;
-let zapEffect = null;
+let zapEffect = [];
+
+let gameState = "playing"; 
+// "playing" | "gameover" | "upgrades"
 
 
 // progression variables
@@ -23,6 +26,27 @@ let spawnRate = 2000; // ms
 let ghostSpeed = 1;
 let lastSpawn = 0;
 let startTime = Date.now();
+
+let upgradeCards = [];
+
+let upgrades = {
+  damage: {
+    level: 1,
+    cost: 10,
+    name: "Zap Power",
+    desc: "+1 damage",
+  },
+  chain: {
+    level: 0,
+    cost: 25,
+    name: "Chain Lightning",
+    desc: "Hits +1 extra target",
+  }
+};
+
+let damage = upgrades.damage.level;
+
+
 
 function spawnGhost() {
   const edge = Math.floor(Math.random() * 4);
@@ -64,60 +88,76 @@ function updateGhosts() {
 
     // collision with orb → game over
     if (dist < center.radius) {
-      gameOver = true;
+      gameState = "gameover";
     }
   });
 }
 
 canvas.addEventListener("click", (e) => {
-  if (gameOver) return;
 
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
 
+  // =========================
+  // UPGRADES SCREEN
+  // =========================
+  if (gameState === "upgrades") {
+
+    upgradeCards.forEach(card => {
+      if (
+        mx > card.x &&
+        mx < card.x + card.w &&
+        my > card.y &&
+        my < card.y + card.h
+      ) {
+        let upg = upgrades[card.key];
+
+        if (ether >= upg.cost) {
+          ether -= upg.cost;
+          upg.level++;
+          upg.cost = Math.floor(upg.cost * 1.5);
+        }
+      }
+    });
+
+    // start run button
+    if (
+      mx > startButton.x &&
+      mx < startButton.x + startButton.w &&
+      my > startButton.y &&
+      my < startButton.y + startButton.h
+    ) {
+      startNewRun();
+    }
+
+    return;
+  }
+
+  // =========================
+  // GAME OVER SCREEN
+  // =========================
+  if (gameState === "gameover") {
+    gameState = "upgrades";
+    return;
+  }
+
+  // =========================
+  // PLAYING STATE
+  // =========================
+  if (gameState !== "playing") return;
+
   const dx = mx - center.x;
   const dy = my - center.y;
 
-  // Check click inside orb
+  // must click orb
   if (Math.sqrt(dx * dx + dy * dy) >= center.radius) return;
 
   if (ghosts.length === 0) return;
 
-  let closestIndex = -1;
-  let closestDist = Infinity;
+  orbPushTime = 10;
 
-  for (let i = 0; i < ghosts.length; i++) {
-    const ghost = ghosts[i];
-
-    const dx = ghost.x - center.x;
-    const dy = ghost.y - center.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist < closestDist) {
-      closestDist = dist;
-      closestIndex = i;
-    }
-  }
-    orbPushTime = 10; // frames of "push" animation
-
-    zapEffect = {
-    x1: center.x,
-    y1: center.y,
-    x2: ghosts[closestIndex].x,
-    y2: ghosts[closestIndex].y,
-    life: 10
-};
-
-  // Safety check
-  if (closestIndex === -1) return;
-
-  ghosts[closestIndex].hp--;
-
-  if (ghosts[closestIndex].hp <= 0) {
-    ghosts.splice(closestIndex, 1);
-    ether++;
-  }
+  zapGhosts();
 });
 
 function updateDifficulty() {
@@ -131,28 +171,32 @@ function updateDifficulty() {
 }
 
 function gameLoop() {
-  if (gameOver) {
-    drawGameOver();
-    return;
-  }
-
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  updateDifficulty();
+  if (gameState === "playing") {
+    updateDifficulty();
 
-  const now = Date.now();
-  if (now - lastSpawn > spawnRate) {
-    spawnGhost();
-    lastSpawn = now;
+    const now = Date.now();
+    if (now - lastSpawn > spawnRate) {
+      spawnGhost();
+      lastSpawn = now;
+    }
+
+    updateGhosts();
+
+    drawOrb();
+    drawGhosts();
+    drawUI();
   }
 
-  updateGhosts();
+  else if (gameState === "gameover") {
+    drawGameOverScreen();
+  }
 
-  drawOrb();
-  drawGhosts();
+  else if (gameState === "upgrades") {
+    drawUpgradeScreen();
+  }
   drawZap();
-  drawUI();
-
   requestAnimationFrame(gameLoop);
 }
 
@@ -185,28 +229,132 @@ function drawUI() {
   ctx.fillText("Ether: " + ether, 20, 30);
 }
 
-function drawGameOver() {
+function drawGameOverScreen() {
   ctx.fillStyle = "red";
   ctx.font = "50px Arial";
   ctx.fillText("Game Over", canvas.width / 2 - 120, canvas.height / 2);
 }
 
 function drawZap() {
-  if (!zapEffect) return;
+  for (let i = zapEffect.length - 1; i >= 0; i--) {
+    let z = zapEffect[i];
 
-  ctx.strokeStyle = "yellow";
-  ctx.lineWidth = 3;
+    ctx.strokeStyle = "yellow";
+    ctx.lineWidth = 2;
 
-  ctx.beginPath();
-  ctx.moveTo(zapEffect.x1, zapEffect.y1);
-  ctx.lineTo(zapEffect.x2, zapEffect.y2);
-  ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(z.x1, z.y1);
+    ctx.lineTo(z.x2, z.y2);
+    ctx.stroke();
 
-  zapEffect.life--;
+    z.life--;
 
-  if (zapEffect.life <= 0) {
-    zapEffect = null;
+    if (z.life <= 0) {
+      zapEffect.splice(i, 1);
+    }
   }
+}
+
+function startNewRun() {
+  ghosts = [];
+  gameState = "playing";
+  startTime = Date.now();
+  lastSpawn = 0;
+}
+
+function zapGhosts() {
+  let targets = [...ghosts];
+
+  targets.sort((a, b) => {
+    const da = Math.hypot(a.x - center.x, a.y - center.y);
+    const db = Math.hypot(b.x - center.x, b.y - center.y);
+    return da - db;
+  });
+
+  const hits = 1 + upgrades.chain.level;
+
+  for (let i = 0; i < hits && i < targets.length; i++) {
+    let g = targets[i];
+
+    // ⚡ CREATE VISUAL HERE (THIS WAS MISSING)
+    zapEffect.push({
+      x1: center.x,
+      y1: center.y,
+      x2: g.x,
+      y2: g.y,
+      life: 15
+    });
+
+    // 💥 DAMAGE
+    g.hp -= upgrades.damage.level;
+
+    if (g.hp <= 0) {
+      const index = ghosts.indexOf(g);
+      if (index !== -1) {
+        ghosts.splice(index, 1);
+        ether++;
+      }
+    }
+  }
+}
+
+function drawUpgradeScreen() {
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "white";
+  ctx.font = "40px Arial";
+  ctx.fillText("Game Over", canvas.width/2 - 120, 80);
+
+  ctx.font = "20px Arial";
+  ctx.fillText("Ether: " + ether, canvas.width/2 - 60, 120);
+
+  upgradeCards = [];
+
+  let startX = canvas.width / 2 - 150;
+  let y = 180;
+
+  Object.keys(upgrades).forEach((key, i) => {
+    let upg = upgrades[key];
+
+    let card = {
+      x: startX,
+      y: y + i * 120,
+      w: 300,
+      h: 100,
+      key: key
+    };
+
+    upgradeCards.push(card);
+
+    // Draw card
+    ctx.fillStyle = "#222";
+    ctx.fillRect(card.x, card.y, card.w, card.h);
+
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(card.x, card.y, card.w, card.h);
+
+    ctx.fillStyle = "white";
+    ctx.font = "18px Arial";
+    ctx.fillText(upg.name, card.x + 10, card.y + 25);
+    ctx.fillText(upg.desc, card.x + 10, card.y + 50);
+    ctx.fillText("Cost: " + upg.cost, card.x + 10, card.y + 75);
+  });
+
+  // Start button
+  startButton = {
+    x: canvas.width / 2 - 100,
+    y: canvas.height - 120,
+    w: 200,
+    h: 60
+  };
+
+  ctx.fillStyle = "cyan";
+  ctx.fillRect(startButton.x, startButton.y, startButton.w, startButton.h);
+
+  ctx.fillStyle = "black";
+  ctx.font = "20px Arial";
+  ctx.fillText("Start Run", startButton.x + 40, startButton.y + 35);
 }
 
 gameLoop();
