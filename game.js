@@ -18,8 +18,11 @@ let ether = 0;
 let orbPushTime = 0;
 let zapEffects = [];
 
-let gameState = "upgrades"; 
-// "playing" | "gameover" | "upgrades"
+let gameState = "hub"; 
+// "playing" | "gameover" | "hub" | "menu"
+
+let currentMenu = null;
+// "click" | "auto" | "damage" | "mana" | etc.
 
 
 // progression variables
@@ -42,10 +45,16 @@ let upgrades = {
     cost: 25,
     name: "Chain Lightning",
     desc: "Hits +1 extra target",
-  }
+  }/*,
+  chainLength: {
+    level: 0,
+    cost: 100,
+    length: 25,
+    name: "Chain Lightning Length",
+    desc: "Increases length of the lightning arc"
+  }*/
 };
 
-let damage = upgrades.damage.level;
 let screenShake = 0;
 let screenFlash = 0;
 
@@ -58,6 +67,107 @@ let damageTypes = {
 
 let currentType = "lightning";
 
+function drawHubScreen() {
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "white";
+  ctx.font = "30px Arial";
+  ctx.textAlign = "center";
+
+  ctx.fillText("Game Over", canvas.width / 2, 80);
+  ctx.fillText("Ether: " + ether, canvas.width / 2, 120);
+
+  ctx.textAlign = "left";
+
+  menuButtons = [];
+
+  const labels = [
+    { name: "Click Upgrades", key: "click" },
+    { name: "Auto Clicker", key: "auto" },
+    { name: "Damage Types", key: "damage" },
+    { name: "Mana", key: "mana" },
+    { name: "Enemy Upgrades", key: "enemy" },
+    { name: "Achievements", key: "achievements" }
+  ];
+
+  const startX = canvas.width / 2 - 400;
+  const startY = 180;
+  const w = 250;
+  const h = 80;
+  const gapX = 300;
+  const gapY = 120;
+
+  labels.forEach((btn, i) => {
+    const col = i % 3;
+    const row = Math.floor(i / 3);
+
+    const x = startX + col * gapX;
+    const y = startY + row * gapY;
+
+    let button = { x, y, w, h, key: btn.key };
+    menuButtons.push(button);
+
+    ctx.fillStyle = "#222";
+    ctx.fillRect(x, y, w, h);
+
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(x, y, w, h);
+
+    ctx.fillStyle = "white";
+    ctx.font = "18px Arial";
+    ctx.fillText(btn.name, x + 20, y + 45);
+  });
+}
+
+function drawMenuScreen() {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // BACK BUTTON
+  backButton = { x: 20, y: 20, w: 120, h: 50 };
+
+  ctx.fillStyle = "#444";
+  ctx.fillRect(backButton.x, backButton.y, backButton.w, backButton.h);
+
+  ctx.fillStyle = "white";
+  ctx.fillText("Back", 50, 50);
+
+  // TITLE
+  ctx.font = "30px Arial";
+  ctx.fillText(currentMenu.toUpperCase(), canvas.width / 2 - 80, 80);
+
+  // GRID OF CARDS (placeholder)
+  let startX = canvas.width / 2 - 300;
+  let startY = 150;
+
+  let w = 250;
+  let h = 100;
+  let gapX = 300;
+  let gapY = 120;
+
+  upgradeCards = [];
+
+  for (let i = 0; i < 6; i++) {
+    let col = i % 2;
+    let row = Math.floor(i / 2);
+
+    let x = startX + col * gapX;
+    let y = startY + row * gapY;
+
+    let card = { x, y, w, h };
+    upgradeCards.push(card);
+
+    ctx.fillStyle = "#222";
+    ctx.fillRect(x, y, w, h);
+
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(x, y, w, h);
+
+    ctx.fillStyle = "white";
+    ctx.fillText("Upgrade " + (i + 1), x + 20, y + 50);
+  }
+}
 
 function getDamageMultiplier(enemy) {
   if (enemy.type === "triangle" && currentType === "fire") return 2;
@@ -177,6 +287,8 @@ upgradeCards.forEach(card => {
         ether -= upg.cost;
         upg.level++;
         upg.cost = Math.floor(upg.cost * 1.5);
+
+        saveGame();
       }
     }
 
@@ -216,9 +328,59 @@ upgradeCards.forEach(card => {
   // GAME OVER SCREEN
   // =========================
   if (gameState === "gameover") {
-    gameState = "upgrades";
+    gameState = "hub";
+  }
+
+  // =========================
+  // HUB SCREEN
+  // =========================
+  if (gameState === "hub") {
+    menuButtons.forEach(btn => {
+      if (
+        mx > btn.x &&
+        mx < btn.x + btn.w &&
+        my > btn.y &&
+        my < btn.y + btn.h
+      ) {
+        currentMenu = btn.key;
+        gameState = "menu";
+      }
+    });
+
     return;
   }
+
+  // =========================
+  // MENU SCREEN
+  // =========================
+  if (gameState === "menu") {
+
+  // back button
+  if (
+    mx > backButton.x &&
+    mx < backButton.x + backButton.w &&
+    my > backButton.y &&
+    my < backButton.y + backButton.h
+  ) {
+    gameState = "hub";
+    return;
+  }
+
+  // upgrade cards (future logic)
+  upgradeCards.forEach(card => {
+    if (
+      mx > card.x &&
+      mx < card.x + card.w &&
+      my > card.y &&
+      my < card.y + card.h
+    ) {
+      console.log("Clicked upgrade in", currentMenu);
+    }
+  });
+
+  return;
+}
+
 
   // =========================
   // PLAYING STATE
@@ -273,9 +435,11 @@ function gameLoop() {
   else if (gameState === "gameover") {
     drawGameOverScreen();
   }
-
-  else if (gameState === "upgrades") {
-    drawUpgradeScreen();
+  else if (gameState === "hub") {
+    drawHubScreen();
+  }
+  else if (gameState === "menu") {
+    drawMenuScreen();
   }
   drawZap();
   
@@ -435,43 +599,65 @@ function startNewRun() {
 }
 
 function zapGhosts() {
-  let targets = [...ghosts];
+  const maxChains = 1 + upgrades.chain.level;
+  const chainRange = 700// + upgrades.chainLength.length; // tweak this (50–120 feels good)
 
-  targets.sort((a, b) => {
-    const da = Math.hypot(a.x - center.x, a.y - center.y);
-    const db = Math.hypot(b.x - center.x, b.y - center.y);
-    return da - db;
-  });
-
-  let hits = 1 + upgrades.chain.level;
-
-  // ❗ if ANY square exists → disable chain
-  if (ghosts.some(g => g.type === "square")) {
-    hits = 1;
-  }
+  let remaining = [...ghosts];
+  let hitSet = new Set();
 
   let lastX = center.x;
   let lastY = center.y;
 
-  for (let i = 0; i < hits && i < targets.length; i++) {
-    let g = targets[i];
+  let chainsDone = 0;
 
-    const mult = getDamageMultiplier(g);
+  while (chainsDone < maxChains) {
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (let g of remaining) {
+      if (hitSet.has(g)) continue;
+
+      const d = Math.hypot(g.x - lastX, g.y - lastY);
+
+      // first hit: allow any distance
+      if (chainsDone === 0) {
+        if (d < closestDist) {
+          closest = g;
+          closestDist = d;
+        }
+      } 
+      // chained hits: must be within range
+      else if (d <= chainRange && d < closestDist) {
+        closest = g;
+        closestDist = d;
+      }
+    }
+
+    // ❌ no valid next target → stop chain
+    if (!closest) break;
+
+    // ✅ apply damage
+    const mult = getDamageMultiplier(closest);
     const dmg = upgrades.damage.level * mult;
 
     zapEffects.push({
-      points: createLightning(lastX, lastY, g.x, g.y),
-      life: 12
+      points: createLightning(lastX, lastY, closest.x, closest.y),
+      life: 12 - chainsDone * 2
     });
 
-    g.hp -= dmg;
-    g.hitFlash = 5;
+    closest.hp -= dmg;
+    closest.hitFlash = 5;
 
-    lastX = g.x;
-    lastY = g.y;
+    // move chain forward
+    lastX = closest.x;
+    lastY = closest.y;
 
-    if (g.hp <= 0) {
-      const index = ghosts.indexOf(g);
+    hitSet.add(closest);
+    chainsDone++;
+
+    // kill check
+    if (closest.hp <= 0) {
+      const index = ghosts.indexOf(closest);
       if (index !== -1) {
         ghosts.splice(index, 1);
         ether++;
@@ -513,25 +699,44 @@ function drawUpgradeScreen() {
   ctx.font = "20px Arial";
   ctx.fillText("Ether: " + ether, canvas.width/2 - 60, 120);
 
-  upgradeCards = [];
+upgradeCards = [];
 
-  let startX = canvas.width / 2 - 150;
-  let y = 180;
+let startX = canvas.width / 2 - 150;
+let y = 180;
 
-  Object.keys(upgrades).forEach((key, i) => {
-    let upg = upgrades[key];
+// =========================
+// UPGRADE CARDS
+// =========================
+Object.keys(upgrades).forEach((key, i) => {
+  let upg = upgrades[key];
 
-    let card = {
-      x: startX,
-      y: y + i * 120,
-      w: 300,
-      h: 100,
-      key: key
-    };
+  let card = {
+    x: startX,
+    y: y + i * 120,
+    w: 300,
+    h: 100,
+    key: key
+  };
 
-    upgradeCards.push(card);
+  upgradeCards.push(card);
 
-    let typeY = y + Object.keys(upgrades).length * 120 + 40;
+  ctx.fillStyle = "#222";
+  ctx.fillRect(card.x, card.y, card.w, card.h);
+
+  ctx.strokeStyle = "white";
+  ctx.strokeRect(card.x, card.y, card.w, card.h);
+
+  ctx.fillStyle = "white";
+  ctx.font = "18px Arial";
+  ctx.fillText(upg.name, card.x + 10, card.y + 25);
+  ctx.fillText(upg.desc, card.x + 10, card.y + 50);
+  ctx.fillText("Cost: " + upg.cost, card.x + 10, card.y + 75);
+});
+
+// =========================
+// DAMAGE TYPES (NOW SEPARATE)
+// =========================
+let typeY = y + Object.keys(upgrades).length * 120 + 40;
 
 Object.keys(damageTypes).forEach((type, i) => {
   let t = damageTypes[type];
@@ -557,20 +762,6 @@ Object.keys(damageTypes).forEach((type, i) => {
     card.y + 35
   );
 });
-
-    // Draw card
-    ctx.fillStyle = "#222";
-    ctx.fillRect(card.x, card.y, card.w, card.h);
-
-    ctx.strokeStyle = "white";
-    ctx.strokeRect(card.x, card.y, card.w, card.h);
-
-    ctx.fillStyle = "white";
-    ctx.font = "18px Arial";
-    ctx.fillText(upg.name, card.x + 10, card.y + 25);
-    ctx.fillText(upg.desc, card.x + 10, card.y + 50);
-    ctx.fillText("Cost: " + upg.cost, card.x + 10, card.y + 75);
-  });
 
 
 
