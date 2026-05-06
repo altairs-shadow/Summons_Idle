@@ -9,6 +9,7 @@ canvas.height = window.innerHeight;
 // ========================
 let gameState = "hub";
 let currentMenu = null;
+let runStartTime = Date.now();
 
 // ========================
 // UI STORAGE
@@ -35,7 +36,10 @@ let zapEffects = [];
 // ========================
 let player = {
   ether: 0,
-  damage: 1
+  damage: 1,
+  chainCount: 1,
+  chainRange: 200,
+  critChance: 0
 };
 
 // ========================
@@ -50,44 +54,50 @@ let spawnRate = 2000;
 // ========================
 //Enemies
 // ========================
-const UPGRADES = [
-  {
-    id: "damage",
+const UPGRADES = {
+  damage: {
     name: "Additional Damage",
+    category: "click",
     baseCost: 10,
-    level: 0,
-    apply: (player) => {
-      player.damage = 1 + UPGRADES[0].level;
+    apply: (player, level) => {
+      player.damage = 1 + level;
     }
   },
 
-  {
-    id: "chainCount",
-    name: "Lightning Chaining",
+  chainCount: {
+    name: "Lightning Chains",
+    category: "click",
     baseCost: 50,
-    level: 0,
-    apply: () => {}
+    apply: (player, level) => {
+      player.chainCount = 1 + level;
+    }
   },
 
-  {
-    id: "chainLength",
-    name: "Chain Length",
-    baseCost: 100,
-    level: 0,
-    apply: () => {}
-  },
-
-  {
-    id: "crit",
-    name: "Critical Clicks",
+  chainLength: {
+    name: "Chain Range",
+    category: "click",
     baseCost: 75,
-    level: 0,
-    apply: () => {}
+    apply: (player, level) => {
+      player.chainRange = 200 + level * 60;
+    }
+  },
+
+  crit: {
+    name: "Critical Clicks",
+    category: "click",
+    baseCost: 100,
+    apply: (player, level) => {
+      player.critChance = level * 0.05;
+    }
   }
-];
+};
 
 function spawnEnemy() {
-  if (enemies.length > 50) return;
+  if (enemies.length >= 50) return;
+
+  const allowed = getAllowedEnemyTypes();
+
+  const type = allowed[Math.floor(Math.random() * allowed.length)];
 
   const edge = Math.floor(Math.random() * 4);
   let x, y;
@@ -97,16 +107,12 @@ function spawnEnemy() {
   if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height; }
   if (edge === 3) { x = 0; y = Math.random() * canvas.height; }
 
-  const types = ["ghost", "triangle", "square", "pentagon"];
-  const type = types[Math.floor(Math.random() * types.length)];
-
   enemies.push({
     id: enemyId++,
     x,
     y,
     type,
-    hp: 3,
-    radius: 15,
+    hp: getEnemyHP(type),
     flash: 0
   });
 }
@@ -118,13 +124,12 @@ function updateEnemies() {
     const dy = orb.y - e.y;
     const dist = Math.hypot(dx, dy);
 
-    const speed = 1.2;
+    const speed = getEnemySpeed(e.type);
 
     e.x += (dx / dist) * speed;
     e.y += (dy / dist) * speed;
 
-    // collision with orb
-    if (dist < orb.radius + e.radius) {
+    if (dist < orb.radius + 15) {
       gameState = "gameover";
       saveGame();
     }
@@ -133,31 +138,7 @@ function updateEnemies() {
   }
 }
 
-function drawEnemies() {
-  for (let e of enemies) {
 
-    ctx.fillStyle = e.flash > 0 ? "purple" : "white";
-
-    ctx.beginPath();
-
-    if (e.type === "triangle") {
-      ctx.moveTo(e.x, e.y - 15);
-      ctx.lineTo(e.x - 15, e.y + 15);
-      ctx.lineTo(e.x + 15, e.y + 15);
-      ctx.closePath();
-    }
-
-    else if (e.type === "square") {
-      ctx.rect(e.x - 15, e.y - 15, 30, 30);
-    }
-
-    else {
-      ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
-    }
-
-    ctx.fill();
-  }
-}
 
 function getClickedEnemy(x, y) {
   let closest = null;
@@ -195,12 +176,9 @@ function zapChainAttack() {
 
   // visuals
   zapEffects.push({
-    x1: orb.x,
-    y1: orb.y,
-    x2: closest.x,
-    y2: closest.y,
-    life: 10
-  });
+  points: createLightning(orb.x, orb.y, closest.x, closest.y),
+  life: 12
+});
 
   if (closest.hp <= 0) {
     enemies = enemies.filter(e => e.id !== closest.id);
@@ -208,6 +186,128 @@ function zapChainAttack() {
   }
 }
 
+function createLightning(x1, y1, x2, y2) {
+  const points = [];
+  const segments = 8;
+  const offset = 25;
+
+  points.push({ x: x1, y: y1 });
+
+  for (let i = 1; i < segments; i++) {
+    const t = i / segments;
+
+    let x = x1 + (x2 - x1) * t;
+    let y = y1 + (y2 - y1) * t;
+
+    const nx = y2 - y1;
+    const ny = x2 - x1;
+    const len = Math.hypot(nx, ny);
+
+    const ox = (-ny / len) * (Math.random() * offset);
+    const oy = (nx / len) * (Math.random() * offset);
+
+    points.push({ x: x + ox, y: y + oy });
+  }
+
+  points.push({ x: x2, y: y2 });
+
+  return points;
+}
+
+function applyUpgrades() {
+  // reset derived stats
+  player.damage = 1;
+  player.chainCount = 1;
+  player.chainRange = 200;
+  player.critChance = 0;
+
+  for (let id in UPGRADES) {
+    const level = getLevel(id);
+    UPGRADES[id].apply(player, level);
+  }
+}
+
+function getCost(id) {
+  const level = getLevel(id);
+  const base = UPGRADES[id].baseCost;
+  return Math.floor(base * Math.pow(1.5, level));
+}
+
+function buyUpgrade(id) {
+  const upg = UPGRADES[id];
+  if (!upg) return;
+
+  const cost = getCost(id);
+  const level = getLevel(id);
+
+  if (player.ether < cost) return;
+
+  player.ether -= cost;
+  player.upgrades[id] = level + 1;
+
+  applyUpgrades();
+  saveGame();
+}
+
+function getLevel(id) {
+  return player.upgrades[id] || 0;
+}
+
+function getUpgradesByCategory(category) {
+  return Object.entries(UPGRADES).filter(([id, upg]) => {
+    return upg.category === category;
+  });
+}
+
+function getRunTime() {
+  return (Date.now() - runStartTime) / 1000;
+}
+
+function getAllowedEnemyTypes() {
+  const t = getRunTime();
+
+  if (t >= 120) return ["circle", "square", "pentagon"];
+  if (t >= 60) return ["circle", "square"];
+  return ["circle"];
+}
+
+function getEnemyHP(type) {
+  const t = getRunTime();
+
+  let base = 1;
+
+  if (type === "square") base = 2;
+  if (type === "pentagon") base = 4;
+
+  // global scaling over time
+  return Math.floor(base + t * 0.1);
+}
+
+function getEnemySpeed(type) {
+  const t = getRunTime();
+
+  let base = 1.0;
+
+  if (type === "square") {
+    base = 1.2;
+    base += (t - 60) * 0.01;
+  }
+
+  if (type === "pentagon") {
+    base = 1.5;
+    base += (t - 120) * 0.015;
+  }
+
+  if (type === "circle") {
+    base = 1.0 + t * 0.005;
+  }
+
+  return base;
+}
+
+//
+// Drawing Functions
+//
 function drawHub() {
   ctx.fillStyle = "#111";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -216,30 +316,30 @@ function drawHub() {
   ctx.font = "30px Arial";
   ctx.textAlign = "center";
 
-  ctx.fillText("GAME OVER / HUB", canvas.width / 2, 80);
+  ctx.fillText("HUB", canvas.width / 2, 80);
   ctx.fillText("Ether: " + player.ether, canvas.width / 2, 120);
 
   ctx.textAlign = "left";
 
   menuButtons = [];
 
-  const buttons = [
-    { name: "Click Upgrades", key: "click" },
-    { name: "Auto Upgrades", key: "auto" },
-    { name: "Damage Types", key: "damage" },
-    { name: "Mana", key: "mana" },
-    { name: "Enemy Upgrades", key: "enemy" },
-    { name: "Achievements", key: "achievements" }
-  ];
+  const categories = [
+  "click",
+  "auto",
+  "damage",
+  "mana",
+  "enemy",
+  "achievements"
+];
 
   const startX = canvas.width / 2 - 300;
   const startY = 200;
 
-  buttons.forEach((b, i) => {
-    let x = startX + (i % 3) * 300;
-    let y = startY + Math.floor(i / 3) * 120;
+  categories.forEach((key, i) => {
+    const x = startX + (i % 3) * 300;
+    const y = startY + Math.floor(i / 3) * 120;
 
-    menuButtons.push({ x, y, w: 220, h: 80, key: b.key });
+    menuButtons.push({ x, y, w: 220, h: 80, key });
 
     ctx.fillStyle = "#222";
     ctx.fillRect(x, y, 220, 80);
@@ -249,7 +349,7 @@ function drawHub() {
 
     ctx.fillStyle = "white";
     ctx.font = "18px Arial";
-    ctx.fillText(b.name, x + 20, y + 45);
+    ctx.fillText(key.toUpperCase(), x + 20, y + 45);
   });
 
   drawStartButton();
@@ -277,37 +377,61 @@ function drawMenu() {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  upgradeCards = [];
-
-  // BACK BUTTON
   backButton = { x: 20, y: 20, w: 120, h: 50 };
 
   ctx.fillStyle = "#444";
-  ctx.fillRect(20, 20, 120, 50);
+  ctx.fillRect(backButton.x, backButton.y, backButton.w, backButton.h);
 
   ctx.fillStyle = "white";
+  ctx.font = "18px Arial";
   ctx.fillText("Back", 60, 50);
 
-  // TITLE
   ctx.font = "28px Arial";
-  ctx.fillText("MENU: " + currentMenu, canvas.width / 2 - 100, 80);
+  ctx.textAlign = "center";
+  ctx.fillText(currentMenu.toUpperCase(), canvas.width / 2, 80);
 
-  // PLACEHOLDER CARDS
-  for (let i = 0; i < 6; i++) {
-    let x = 200 + (i % 2) * 300;
-    let y = 150 + Math.floor(i / 2) * 120;
+  // Ether display under title
+  ctx.font = "18px Arial";
+  ctx.fillStyle = "#00ffff";
+  ctx.fillText(
+    "Ether: " + player.ether,
+    canvas.width / 2,
+    110
+  );
 
-    upgradeCards.push({ x, y, w: 250, h: 80, id: i });
+  ctx.textAlign = "left";
+  ctx.fillStyle = "white";
 
-    ctx.fillStyle = "#222";
-    ctx.fillRect(x, y, 250, 80);
+  upgradeCards = [];
+
+  const upgrades = getUpgradesByCategory(currentMenu);
+
+  let i = 0;
+
+  for (const [id, upg] of upgrades) {
+
+    const level = getLevel(id);
+    const cost = getCost(id);
+
+    const x = 200 + (i % 2) * 320;
+    const y = 150 + Math.floor(i / 2) * 120;
+
+    upgradeCards.push({ x, y, w: 280, h: 90, id });
+
+    ctx.fillStyle = player.ether >= cost ? "#222" : "#111";
+    ctx.fillRect(x, y, 280, 90);
 
     ctx.strokeStyle = "white";
-    ctx.strokeRect(x, y, 250, 80);
+    ctx.strokeRect(x, y, 280, 90);
 
     ctx.fillStyle = "white";
     ctx.font = "16px Arial";
-    ctx.fillText("Upgrade " + i, x + 20, y + 45);
+
+    ctx.fillText(upg.name, x + 10, y + 30);
+    ctx.fillText("Level: " + level, x + 10, y + 55);
+    ctx.fillText("Cost: " + cost, x + 10, y + 75);
+
+    i++;
   }
 
   drawStartButton();
@@ -369,22 +493,62 @@ function drawOrb() {
 }
 
 function drawZaps() {
-  for (let z of zapEffects) {
+  for (let i = zapEffects.length - 1; i >= 0; i--) {
+    const z = zapEffects[i];
 
     ctx.strokeStyle = "rgba(0,255,255,0.9)";
     ctx.lineWidth = 2;
 
     ctx.beginPath();
-    ctx.moveTo(z.x1, z.y1);
-    ctx.lineTo(z.x2, z.y2);
+    ctx.moveTo(z.points[0].x, z.points[0].y);
+
+    for (let p = 1; p < z.points.length; p++) {
+      ctx.lineTo(z.points[p].x, z.points[p].y);
+    }
+
     ctx.stroke();
 
     z.life--;
+    if (z.life <= 0) zapEffects.splice(i, 1);
   }
-
-  zapEffects = zapEffects.filter(z => z.life > 0);
 }
 
+function drawEnemies() {
+  for (let e of enemies) {
+
+    ctx.fillStyle = e.flash > 0 ? "purple" : "white";
+
+    ctx.beginPath();
+
+    if (e.type === "square") {
+      ctx.rect(e.x - 15, e.y - 15, 30, 30);
+    }
+
+    else if (e.type === "pentagon") {
+      for (let i = 0; i < 5; i++) {
+        const angle = (i * Math.PI * 2) / 5;
+        const x = e.x + Math.cos(angle) * 15;
+        const y = e.y + Math.sin(angle) * 15;
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    }
+
+    else {
+      // circle default
+      ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
+    }
+
+    ctx.fill();
+  }
+}
+
+
+//
+// Clicker handler
+//
 canvas.addEventListener("click", (e) => {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
@@ -407,35 +571,53 @@ canvas.addEventListener("click", (e) => {
   // HUB CLICK
   // ======================
   if (gameState === "hub") {
-    for (let b of menuButtons) {
-      if (mx > b.x && mx < b.x + b.w &&
-          my > b.y && my < b.y + b.h) {
-        currentMenu = b.key;
-        gameState = "menu";
+  for (let b of menuButtons) {
+    if (
+      mx > b.x && mx < b.x + b.w &&
+      my > b.y && my < b.y + b.h
+    ) {
+
+      if (b.upgradeId) {
+        buyUpgrade(b.upgradeId);
         return;
       }
+
+      currentMenu = b.key;
+      gameState = "menu";
+      return;
     }
   }
+}
 
   // ======================
   // MENU CLICK
   // ======================
   if (gameState === "menu") {
 
-    if (mx > backButton.x && mx < backButton.x + backButton.w &&
-        my > backButton.y && my < backButton.y + backButton.h) {
-      gameState = "hub";
-      return;
-    }
-
-    for (let c of upgradeCards) {
-      if (mx > c.x && mx < c.x + c.w &&
-          my > c.y && my < c.y + c.h) {
-        console.log("clicked upgrade:", c.id);
-      }
-    }
+  // BACK BUTTON
+  if (
+    backButton &&
+    mx > backButton.x && mx < backButton.x + backButton.w &&
+    my > backButton.y && my < backButton.y + backButton.h
+  ) {
+    gameState = "hub";
     return;
   }
+
+  // UPGRADE CARDS
+  for (let c of upgradeCards) {
+    if (
+      mx > c.x && mx < c.x + c.w &&
+      my > c.y && my < c.y + c.h
+    ) {
+
+      buyUpgrade(c.id);   // ✅ THIS is the important fix
+      return;
+    }
+  }
+
+  return;
+}
 
   // ======================
   // GAME CLICK (ORB ATTACK)
@@ -470,22 +652,39 @@ if (gameState === "gameover" && gameOverButton) {
 }
 });
 
+
+//
+// Additional functions
+//
 function startRun() {
   enemies = [];
   enemyId = 0;
 
-  lastSpawn = Date.now(); // important
-  gameState = "playing";  // safer than setting in click handler
+  runStartTime = Date.now();
+  lastSpawn = Date.now();
+
+  gameState = "playing";
+
+  applyUpgrades();
 }
 
 function saveGame() {
-  localStorage.setItem("save", JSON.stringify(player));
+  const saveData = {
+    ether: player.ether,
+    upgrades: player.upgrades
+  };
+
+  localStorage.setItem("save", JSON.stringify(saveData));
 }
 
 function loadGame() {
   const data = localStorage.getItem("save");
   if (!data) return;
-  player = JSON.parse(data);
+
+  const save = JSON.parse(data);
+
+  player.ether = save.ether || 0;
+  player.upgrades = save.upgrades || {};
 }
 
 function gameLoop() {
@@ -494,12 +693,13 @@ function gameLoop() {
   if (gameState === "hub") drawHub();
   if (gameState === "menu") drawMenu();
 
-if (gameState === "playing") {
+  if (gameState === "playing") {
 
   const now = Date.now();
 
-  // ✅ SPAWN LOGIC (ADD THIS)
-  if (now - lastSpawn > spawnRate) {
+  if (lastSpawn === 0) lastSpawn = now;
+
+  if (now - lastSpawn >= spawnRate) {
     spawnEnemy();
     lastSpawn = now;
   }
