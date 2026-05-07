@@ -37,12 +37,23 @@ let zapEffects = [];
 // PLAYER 
 // ========================
 let player = {
+  //
+  // Player information
+  //
   ether: 0,
   damage: 1,
   chainCount: 1,
   chainRange: 200,
   critChance: 0,
-  enemySpeedMultiplier: 0
+  enemySpeedMultiplier: 0,
+
+  //
+  // Auto clicker
+  //
+  autoEnabled: false,
+  autoDamage: 1,
+  autoAttackSpeed: 1000,
+  lastAutoAttack: 0,
 };
 
 // ========================
@@ -100,7 +111,34 @@ const UPGRADES = {
     apply: (player, level) => {
       player.enemySpeedMultiplier = level * .1;
     }
+  },
+
+  //
+  // Auto upgrades
+  //
+  autoClicker: {
+  name: "Auto Clicker",
+  category: "auto",
+  baseCost: 20,
+  apply: (player, level) => {
+
+    // level 0 = disabled
+    if (level <= 0) {
+      player.autoEnabled = false;
+      return;
+    }
+
+    player.autoEnabled = true;
+
+    // attack speed improves per level
+    // starts at 1/sec
+    // lower = faster
+    player.autoAttackSpeed = Math.max(
+      150,
+      1000 - (level - 1) * 100
+    );
   }
+},
 };
 
 let runStats = {
@@ -191,13 +229,39 @@ function getClickedEnemy(x, y) {
   return closest;
 }
 
+function damageEnemy(target, damage) {
+
+  if (!target) return false;
+
+  target.hp -= damage;
+  target.flash = 5;
+
+  if (target.hp <= 0) {
+
+    enemies = enemies.filter(e => e.id !== target.id);
+
+    player.ether += 1;
+    runStats.ether += 1;
+
+    if (target.type === "circle") runStats.circles++;
+    if (target.type === "square") runStats.squares++;
+    if (target.type === "pentagon") runStats.pentagons++;
+
+    return true;
+  }
+
+  return false;
+}
+
 function zapChainAttack() {
 
   let closest = null;
   let closestDist = Infinity;
 
   for (let e of enemies) {
+
     const d = Math.hypot(e.x - orb.x, e.y - orb.y);
+
     if (d < closestDist) {
       closest = e;
       closestDist = d;
@@ -206,27 +270,63 @@ function zapChainAttack() {
 
   if (!closest) return;
 
-  // damage (placeholder system)
-  closest.hp -= player.damage;
-  closest.flash = 5;
-
-  // visuals
   zapEffects.push({
-  points: createLightning(orb.x, orb.y, closest.x, closest.y),
-  life: 12
-});
+    points: createLightning(
+      orb.x,
+      orb.y,
+      closest.x,
+      closest.y
+    ),
+    life: 12
+  });
 
-  if (closest.hp <= 0) {
-  enemies = enemies.filter(e => e.id !== closest.id);
-
-  player.ether += 1;
-
-  runStats.ether += 1;
-
-  if (closest.type === "circle") runStats.circles++;
-  if (closest.type === "square") runStats.squares++;
-  if (closest.type === "pentagon") runStats.pentagons++;
+  damageEnemy(closest, player.damage);
 }
+
+function autoAttack() {
+  if (!player.autoEnabled) return;
+  const now = Date.now();
+
+  if (now - player.lastAutoAttack < player.autoAttackSpeed) {
+    return;
+  }
+
+  player.lastAutoAttack = now;
+
+  if (enemies.length === 0) return;
+
+  let target = null;
+  let bestDist = Infinity;
+
+  for (let e of enemies) {
+
+    // Ignore enemies manual click would instantly kill
+    if (e.hp <= player.damage) continue;
+
+    const d = Math.hypot(e.x - orb.x, e.y - orb.y);
+
+    if (d < bestDist) {
+      target = e;
+      bestDist = d;
+    }
+  }
+
+  // fallback if every enemy is weak
+  if (!target) {
+    target = enemies[0];
+  }
+
+  zapEffects.push({
+    points: createLightning(
+      orb.x,
+      orb.y,
+      target.x,
+      target.y
+    ),
+    life: 12
+  });
+
+  damageEnemy(target, player.autoDamage);
 }
 
 function createLightning(x1, y1, x2, y2) {
@@ -264,6 +364,8 @@ function applyUpgrades() {
   player.chainRange = 200;
   player.critChance = 0;
   player.enemySpeedMultiplier = 0;
+  player.autoEnabled = false;
+  player.autoAttackSpeed = 1000;
 
   for (let id in UPGRADES) {
     const level = getLevel(id);
@@ -783,7 +885,8 @@ function gameLoop() {
   }
 
   updateEnemies();
-
+  autoAttack();
+  
   drawOrb();
   drawEnemies();
   drawZaps();
