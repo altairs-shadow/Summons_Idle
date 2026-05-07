@@ -48,6 +48,7 @@ let player = {
   critChance: 0,
   enemySpeedMultiplier: 0,
 
+  upgrades: {},
   //
   // Auto clicker
   //
@@ -494,6 +495,7 @@ function buyUpgrade(id) {
 }
 
 function getLevel(id) {
+  if (!player.upgrades) return 0;
   return player.upgrades[id] || 0;
 }
 
@@ -1123,7 +1125,7 @@ function loadGame() {
   const save = JSON.parse(data);
 
   player.ether = save.ether || 0;
-  player.upgrades = save.upgrades || {};
+  player.upgrades = save.upgrades ? save.upgrades : {};
 
   // ========================
   // MANA SYSTEM RESTORE
