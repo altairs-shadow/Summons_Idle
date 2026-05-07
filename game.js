@@ -54,6 +54,9 @@ let player = {
   autoDamage: 1,
   autoAttackSpeed: 1000,
   lastAutoAttack: 0,
+  autoChainCount: 1,
+  autoChainRange: 200,
+  autoCritChance: 0,
 };
 
 // ========================
@@ -134,11 +137,47 @@ const UPGRADES = {
     // starts at 1/sec
     // lower = faster
     player.autoAttackSpeed = Math.max(
-      150,
-      1000 - (level - 1) * 100
+      1000,
+      1000 - (level - 1) * 50
     );
   }
 },
+autoDamage: {
+  name: "Auto Damage",
+  category: "auto",
+  baseCost: 25,
+  apply: (player, level) => {
+    player.autoDamage = 1 + level;
+  }
+},
+
+autoChainCount: {
+  name: "Auto Chains",
+  category: "auto",
+  baseCost: 50,
+  apply: (player, level) => {
+    player.autoChainCount = 1 + level;
+  }
+},
+
+autoChainLength: {
+  name: "Auto Chain Range",
+  category: "auto",
+  baseCost: 75,
+  apply: (player, level) => {
+    player.autoChainRange = 200 + level * 60;
+  }
+},
+
+autoCrit: {
+  name: "Auto Crit",
+  category: "auto",
+  baseCost: 100,
+  apply: (player, level) => {
+    player.autoCritChance = level * 0.05;
+  }
+},
+
 };
 
 let runStats = {
@@ -255,32 +294,74 @@ function damageEnemy(target, damage) {
 
 function zapChainAttack() {
 
-  let closest = null;
-  let closestDist = Infinity;
+  if (enemies.length === 0) return;
 
+  let current = null;
+  let bestDist = Infinity;
+
+  // FIRST TARGET
   for (let e of enemies) {
 
     const d = Math.hypot(e.x - orb.x, e.y - orb.y);
 
-    if (d < closestDist) {
-      closest = e;
-      closestDist = d;
+    if (d < bestDist) {
+      current = e;
+      bestDist = d;
     }
   }
 
-  if (!closest) return;
+  if (!current) return;
 
-  zapEffects.push({
-    points: createLightning(
-      orb.x,
-      orb.y,
-      closest.x,
-      closest.y
-    ),
-    life: 12
-  });
+  const hitEnemies = [];
 
-  damageEnemy(closest, player.damage);
+  for (let i = 0; i < player.chainCount; i++) {
+
+    if (!current) break;
+
+    hitEnemies.push(current);
+
+    damageEnemy(current, player.damage);
+
+    // SQUARE INTERRUPTS CHAIN
+    if (current.type === "square") {
+      break;
+    }
+
+    // FIND NEXT TARGET
+    let next = null;
+    let nextDist = Infinity;
+
+    for (let e of enemies) {
+
+      if (hitEnemies.includes(e)) continue;
+
+      const d = Math.hypot(
+        e.x - current.x,
+        e.y - current.y
+      );
+
+      if (
+        d < player.chainRange &&
+        d < nextDist
+      ) {
+        next = e;
+        nextDist = d;
+      }
+    }
+
+    // VISUAL
+    zapEffects.push({
+      points: createLightning(
+        i === 0 ? orb.x : current.x,
+        i === 0 ? orb.y : current.y,
+        current.x,
+        current.y
+      ),
+      life: 12
+    });
+
+    current = next;
+  }
 }
 
 function autoAttack() {
@@ -329,6 +410,97 @@ function autoAttack() {
   damageEnemy(target, player.autoDamage);
 }
 
+function autoZapAttack() {
+  if (player.autoAttackSpeed < 250) {
+    player.autoAttackSpeed = 250;
+  }
+  if (!player.autoEnabled) return;
+  if (enemies.length === 0) return;
+
+  const now = Date.now();
+
+  if (now - player.lastAutoAttack < player.autoAttackSpeed) {
+    return;
+  }
+
+  player.lastAutoAttack = now;
+
+  let current = null;
+  let bestDist = Infinity;
+
+  // =========================
+  // FIND FIRST TARGET
+  // =========================
+  for (let e of enemies) {
+    const d = Math.hypot(e.x - orb.x, e.y - orb.y);
+
+    if (d < bestDist) {
+      bestDist = d;
+      current = e;
+    }
+  }
+
+  if (!current) return;
+
+  const hitEnemies = [];
+
+  // =========================
+  // CHAIN LOOP
+  // =========================
+  for (let i = 0; i < player.autoChainCount; i++) {
+
+    if (!current) break;
+
+    hitEnemies.push(current);
+
+    // ⚡ VISUAL ZAP
+    zapEffects.push({
+      points: createLightning(
+        i === 0 ? orb.x : current.x,
+        i === 0 ? orb.y : current.y,
+        current.x,
+        current.y
+      ),
+      life: 12
+    });
+
+    // 💥 DAMAGE
+    damageEnemy(current, player.autoDamage);
+
+    // 🚫 SQUARE INTERRUPT RULE
+    // If a square is hit, chain STOPS immediately
+    if (current.type === "square") {
+      break;
+    }
+
+    // =========================
+    // FIND NEXT TARGET
+    // =========================
+    let next = null;
+    let nextDist = Infinity;
+
+    for (let e of enemies) {
+
+      if (hitEnemies.includes(e)) continue;
+
+      const d = Math.hypot(
+        e.x - current.x,
+        e.y - current.y
+      );
+
+      if (
+        d < player.autoChainRange &&
+        d < nextDist
+      ) {
+        next = e;
+        nextDist = d;
+      }
+    }
+
+    current = next;
+  }
+}
+
 function createLightning(x1, y1, x2, y2) {
   const points = [];
   const segments = 8;
@@ -366,6 +538,10 @@ function applyUpgrades() {
   player.enemySpeedMultiplier = 0;
   player.autoEnabled = false;
   player.autoAttackSpeed = 1000;
+  player.autoDamage = 1;
+  player.autoChainCount = 1;
+  player.autoChainRange = 200;
+  player.autoCritChance = 0;
 
   for (let id in UPGRADES) {
     const level = getLevel(id);
@@ -456,7 +632,7 @@ function getSpawnRate() {
 
   // starts at 2000ms
   // decreases over time
-  return Math.max(300, 2000 - t * 10);
+  return Math.max(200, 1500 - t * 10);
 }
 
 //
@@ -885,8 +1061,10 @@ function gameLoop() {
   }
 
   updateEnemies();
-  autoAttack();
   
+  //zapChainAttack();
+  autoZapAttack();
+
   drawOrb();
   drawEnemies();
   drawZaps();
