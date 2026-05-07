@@ -10,6 +10,8 @@ canvas.height = window.innerHeight;
 let gameState = "hub";
 let currentMenu = null;
 let runStartTime = Date.now();
+let runStartTimeStats = 0;
+let runElapsed = 0;
 
 // ========================
 // UI STORAGE
@@ -92,6 +94,26 @@ const UPGRADES = {
   }
 };
 
+let runStats = {
+  ghosts: 0,
+  squares: 0,
+  pentagons: 0,
+  ether: 0,
+  time: 0
+};
+
+let globalStats = {
+  ghosts: 0,
+  squares: 0,
+  pentagons: 0,
+  totalEther: 0,
+  runs: 0
+};
+
+
+//
+// Functions begin
+//
 function spawnEnemy() {
   if (enemies.length >= 50) return;
 
@@ -113,6 +135,7 @@ function spawnEnemy() {
     y,
     type,
     hp: getEnemyHP(type),
+    radius: 15,
     flash: 0
   });
 }
@@ -129,10 +152,16 @@ function updateEnemies() {
     e.x += (dx / dist) * speed;
     e.y += (dy / dist) * speed;
 
-    if (dist < orb.radius + 15) {
-      gameState = "gameover";
-      saveGame();
-    }
+    if (dist < orb.radius + e.radius) {
+    globalStats.ghosts += runStats.ghosts;
+    globalStats.squares += runStats.squares;
+    globalStats.pentagons += runStats.pentagons;
+    globalStats.totalEther += runStats.ether;
+    globalStats.runs++;
+    
+    saveGame();
+    gameState = "summary";
+  }
 
     if (e.flash > 0) e.flash--;
   }
@@ -181,9 +210,16 @@ function zapChainAttack() {
 });
 
   if (closest.hp <= 0) {
-    enemies = enemies.filter(e => e.id !== closest.id);
-    player.ether += 1;
-  }
+  enemies = enemies.filter(e => e.id !== closest.id);
+
+  player.ether += 1;
+
+  runStats.ether += 1;
+
+  if (closest.type === "ghost") runStats.ghosts++;
+  if (closest.type === "square") runStats.squares++;
+  if (closest.type === "pentagon") runStats.pentagons++;
+}
 }
 
 function createLightning(x1, y1, x2, y2) {
@@ -447,18 +483,30 @@ function drawGame() {
   ctx.fillText("PLAYING...", 50, 50);
 }
 
-function drawGameOver() {
-  ctx.fillStyle = "red";
-  ctx.font = "50px Arial";
+function drawSummary() {
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "white";
   ctx.textAlign = "center";
 
-  ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 80);
+  ctx.font = "40px Arial";
+  ctx.fillText("RUN COMPLETE", canvas.width / 2, 120);
+
+  ctx.font = "20px Arial";
+
+  ctx.fillText("Time: " + runStats.time.toFixed(1) + "s", canvas.width / 2, 200);
+  ctx.fillText("Ether earned: " + runStats.ether, canvas.width / 2, 240);
+
+  ctx.fillText(`Ghosts killed: ${runStats.ghosts}`, canvas.width / 2, 300);
+  ctx.fillText(`Squares killed: ${runStats.squares}`, canvas.width / 2, 340);
+  ctx.fillText(`Pentagons killed: ${runStats.pentagons}`, canvas.width / 2, 380);
 
   // BUTTON
   gameOverButton = {
-    x: canvas.width / 2 - 100,
-    y: canvas.height / 2,
-    w: 200,
+    x: canvas.width / 2 - 120,
+    y: 450,
+    w: 240,
     h: 60
   };
 
@@ -469,17 +517,21 @@ function drawGameOver() {
   ctx.strokeRect(gameOverButton.x, gameOverButton.y, gameOverButton.w, gameOverButton.h);
 
   ctx.fillStyle = "white";
-  ctx.font = "20px Arial";
-  ctx.fillText("Back to Hub", canvas.width / 2, canvas.height / 2 + 38);
+  ctx.fillText("Return to Hub", canvas.width / 2, 488);
 
   ctx.textAlign = "left";
 }
 
 function drawUI() {
   ctx.fillStyle = "white";
-  ctx.font = "25px Arial";
+  ctx.font = "18px Arial";
 
-  ctx.fillText("Ether: " + player.ether, canvas.width / 2 - 50, canvas.height / 4 - 125)
+  ctx.fillText("Ether: " + player.ether, 20, 30);
+
+  // TIMER (top right)
+  ctx.textAlign = "right";
+  ctx.fillText(runElapsed.toFixed(1) + "s", canvas.width - 20, 30);
+  ctx.textAlign = "left";
 }
 
 function drawOrb() {
@@ -634,7 +686,7 @@ canvas.addEventListener("click", (e) => {
   zapChainAttack();
 }
 
-if (gameState === "gameover" && gameOverButton) {
+if (gameState === "summary" && gameOverButton) {
   if (
     mx > gameOverButton.x &&
     mx < gameOverButton.x + gameOverButton.w &&
@@ -642,11 +694,8 @@ if (gameState === "gameover" && gameOverButton) {
     my < gameOverButton.y + gameOverButton.h
   ) {
     gameState = "hub";
-
-    // reset run state safely
     enemies = [];
     enemyId = 0;
-
     return;
   }
 }
@@ -662,6 +711,15 @@ function startRun() {
 
   runStartTime = Date.now();
   lastSpawn = Date.now();
+  runStartTimeStats = Date.now();
+
+  runStats = {
+  ghosts: 0,
+  squares: 0,
+  pentagons: 0,
+  ether: 0,
+  time: 0
+};
 
   gameState = "playing";
 
@@ -696,6 +754,8 @@ function gameLoop() {
   if (gameState === "playing") {
 
   const now = Date.now();
+  runElapsed = (Date.now() - runStartTime) / 1000;
+  runStats.time = runElapsed;
 
   if (lastSpawn === 0) lastSpawn = now;
 
@@ -712,8 +772,8 @@ function gameLoop() {
   drawUI();
 }
 
-  if (gameState === "gameover") {
-    drawGameOver();
+  if (gameState === "summary") {
+    drawSummary();
   }
 
   requestAnimationFrame(gameLoop);
