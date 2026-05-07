@@ -4,6 +4,43 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
+let player = {
+  //
+  // Player information
+  //
+  ether: 0,
+  damage: 1,
+  chainCount: 1,
+  chainRange: 200,
+  critChance: 0,
+  enemySpeedMultiplier: 0,
+
+  upgrades: {},
+  //
+  // Auto clicker
+  //
+  autoEnabled: false,
+  autoDamage: 1,
+  autoAttackSpeed: 1000,
+  lastAutoAttack: 0,
+  autoChainCount: 1,
+  autoChainRange: 200,
+  autoCritChance: 0,
+
+};
+// ========================
+// ROOT GAME STATE 
+// ========================
+let game = {
+  player,
+  meta: {
+    mana: 0,
+    manaBreakpoints: 0,
+    difficultyMultiplier: 1
+  }
+};
+
+
 // ========================
 // GAME STATE
 // ========================
@@ -37,30 +74,7 @@ let zapEffects = [];
 // ========================
 // PLAYER 
 // ========================
-let player = {
-  //
-  // Player information
-  //
-  ether: 0,
-  damage: 1,
-  chainCount: 1,
-  chainRange: 200,
-  critChance: 0,
-  enemySpeedMultiplier: 0,
 
-  upgrades: {},
-  //
-  // Auto clicker
-  //
-  autoEnabled: false,
-  autoDamage: 1,
-  autoAttackSpeed: 1000,
-  lastAutoAttack: 0,
-  autoChainCount: 1,
-  autoChainRange: 200,
-  autoCritChance: 0,
-
-};
 
 // ========================
 // DEV SYSTEMS (MANA DUMP)
@@ -69,11 +83,8 @@ const DEV_FEATURES = {
   manaDump: true
 };
 
-let mana = 0;
 let isDumpingEther = false;
 
-let manaBreakpoints = 0; // how many times player hit 100 mana
-let difficultyMultiplier = 1;
 
 // tuning values
 const MANA_DUMP_RATE = 1; // ether per frame tick (we will refine later)
@@ -314,7 +325,7 @@ function damageEnemy(target, damage) {
 
     enemies = enemies.filter(e => e.id !== target.id);
 
-    player.ether += cleanNumber(1 * difficultyMultiplier);
+    player.ether += cleanNumber(1 * game.meta.difficultyMultiplier);
     runStats.ether += 1;
 
     if (target.type === "circle") runStats.circles++;
@@ -526,7 +537,7 @@ function getEnemyHP(type) {
   if (type === "pentagon") base = 4;
 
   // global scaling over time
-  return Math.floor((base + t * 0.1) * difficultyMultiplier);
+  return Math.floor((base + t * 0.1) * game.meta.difficultyMultiplier);
 }
 
 function getEnemySpeed(type) {
@@ -678,13 +689,13 @@ if (currentMenu === "mana") {
   ctx.font = "22px Arial";
 
   ctx.fillText(
-    `Mana: ${Math.floor(mana)} / 100`,
+    `Mana: ${Math.floor(game.meta.mana)} / 100`,
     canvas.width / 2,
     160
   );
 
   ctx.fillText(
-    `Difficulty Multiplier: x${difficultyMultiplier.toFixed(1)}`,
+    `Difficulty Multiplier: x${game.meta.difficultyMultiplier.toFixed(1)}`,
     canvas.width / 2,
     190
   );
@@ -698,7 +709,7 @@ if (currentMenu === "mana") {
   ctx.fillRect(
     canvas.width / 2 - 200,
     220,
-    (mana / 100) * 400,
+    (game.meta.mana / 100) * 400,
     20
   );
 
@@ -1066,9 +1077,9 @@ function resetPlayer() {
 }
 
 function resetMeta() {
-  mana = 0;
-  manaBreakpoints = 0;
-  difficultyMultiplier = 1;
+  game.meta.mana = 0;
+  game.meta.manaBreakpoints = 0;
+  game.meta.difficultyMultiplier = 1;
 
   globalStats = {
     circles: 0,
@@ -1094,9 +1105,9 @@ function saveGame() {
     // ========================
     // MANA SYSTEM
     // ========================
-    mana,
-    manaBreakpoints,
-    difficultyMultiplier
+    mana: game.meta.mana,
+    manaBreakpoints: game.meta.manaBreakpoints,
+    difficultyMultiplier: game.meta.difficultyMultiplier
   };
 
   localStorage.setItem("save", JSON.stringify(saveData));
@@ -1124,9 +1135,9 @@ function loadGame() {
   player.ether = save.ether || 0;
   player.upgrades = save.upgrades ? save.upgrades : {};
 
-  mana = Number(save.mana) || 0;
-  manaBreakpoints = Number(save.manaBreakpoints) || 0;
-  difficultyMultiplier = Number(save.difficultyMultiplier) || 1;
+  game.meta.mana = Number(save.mana) || 0;
+  game.meta.manaBreakpoints = Number(save.manaBreakpoints) || 0;
+  game.meta.difficultyMultiplier = Number(save.difficultyMultiplier) || 1;
 
   applyUpgrades(); // ✅ ADD THIS
 }
@@ -1141,19 +1152,19 @@ if (DEV_FEATURES.manaDump && isDumpingEther && currentMenu === "mana") {
 
   if (player.ether > 0) {
   player.ether -= 1;
-  mana += 1;
+  game.meta.mana += 1;
   saveGame();
 
   if (player.ether < 0) player.ether = 0;
 }
 
-  if (mana >= 100) {
-    mana -= 100;
-    manaBreakpoints++;
+  if (game.meta.mana >= 100) {
+    game.meta.mana -= 100;
+    game.meta.manaBreakpoints++;
 
-    difficultyMultiplier = Math.pow(1.25, manaBreakpoints);
+    difficultyMultiplier = Math.pow(1.25, game.meta.manaBreakpoints);
 
-    console.log("Mana breakpoint:", manaBreakpoints);
+    console.log("Mana breakpoint:", game.meta.manaBreakpoints);
   }
 }
 
