@@ -4,41 +4,43 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-let player = {
-  //
-  // Player information
-  //
-  ether: 0,
-  damage: 1,
-  chainCount: 1,
-  chainRange: 200,
-  critChance: 0,
-  enemySpeedMultiplier: 0,
 
-  upgrades: {},
-  //
-  // Auto clicker
-  //
-  autoEnabled: false,
-  autoDamage: 1,
-  autoAttackSpeed: 1000,
-  lastAutoAttack: 0,
-  autoChainCount: 1,
-  autoChainRange: 200,
-  autoCritChance: 0,
+function createPlayer() {
+  return {
+    ether: 0,
+    damage: 1,
+    chainCount: 1,
+    chainRange: 200,
+    critChance: 0,
+    enemySpeedMultiplier: 0,
 
-};
+    upgrades: {},
+
+    // Auto
+    autoEnabled: false,
+    autoDamage: 1,
+    autoAttackSpeed: 1000,
+    lastAutoAttack: 0,
+    autoChainCount: 1,
+    autoChainRange: 200,
+    autoCritChance: 0
+  };
+}
+
 // ========================
-// ROOT GAME STATE 
+// ROOT GAME STATE
 // ========================
 let game = {
-  player,
+  player: createPlayer(),
+
   meta: {
     mana: 0,
     manaBreakpoints: 0,
     difficultyMultiplier: 1
   }
 };
+
+const SaveKey = "save_V1"
 
 
 // ========================
@@ -71,9 +73,6 @@ const orb = {
 let particles = [];
 let zapEffects = [];
 
-// ========================
-// PLAYER 
-// ========================
 
 
 // ========================
@@ -325,7 +324,7 @@ function damageEnemy(target, damage) {
 
     enemies = enemies.filter(e => e.id !== target.id);
 
-    player.ether += cleanNumber(1 * game.meta.difficultyMultiplier);
+    game.player.ether += cleanNumber(1 * game.meta.difficultyMultiplier);
     runStats.ether += 1;
 
     if (target.type === "circle") runStats.circles++;
@@ -415,22 +414,22 @@ function castChainAttack(config) {
 }
 
 function autoZapAttack() {
-  if (!player.autoEnabled) return;
+  if (!game.player.autoEnabled) return;
   if (enemies.length === 0) return;
 
   const now = Date.now();
 
-  if (now - player.autoLastAttack < player.autoAttackSpeed) return;
+  if (now - game.player.LastAutoAttack < game.player.autoAttackSpeed) return;
 
-  player.autoLastAttack = now;
+  game.player.LastAutoAttack = now;
 
   castChainAttack({
     originX: orb.x,
     originY: orb.y,
-    damage: player.autoDamage,
-    chainCount: player.autoChainCount,
-    chainRange: player.autoChainRange,
-    critChance: player.autoCritChance,
+    damage: game.player.autoDamage,
+    chainCount: game.player.autoChainCount,
+    chainRange: game.player.autoChainRange,
+    critChance: game.player.autoCritChance,
     source: "auto"
   });
 }
@@ -465,21 +464,21 @@ function createLightning(x1, y1, x2, y2) {
 
 function applyUpgrades() {
   // reset derived stats
-  player.damage = 1;
-  player.chainCount = 1;
-  player.chainRange = 200;
-  player.critChance = 0;
-  player.enemySpeedMultiplier = 0;
-  player.autoEnabled = false;
-  player.autoAttackSpeed = 1000;
-  player.autoDamage = 1;
-  player.autoChainCount = 1;
-  player.autoChainRange = 200;
-  player.autoCritChance = 0;
+  game.player.damage = 1;
+  game.player.chainCount = 1;
+  game.player.chainRange = 200;
+  game.player.critChance = 0;
+  game.player.enemySpeedMultiplier = 0;
+  game.player.autoEnabled = false;
+  game.player.autoAttackSpeed = 1000;
+  game.player.autoDamage = 1;
+  game.player.autoChainCount = 1;
+  game.player.autoChainRange = 200;
+  game.player.autoCritChance = 0;
 
   for (let id in UPGRADES) {
     const level = getLevel(id);
-    UPGRADES[id].apply(player, level);
+    UPGRADES[id].apply(game.player, level);
   }
 }
 
@@ -496,18 +495,18 @@ function buyUpgrade(id) {
   const cost = getCost(id);
   const level = getLevel(id);
 
-  if (player.ether < cost) return;
+  if (game.player.ether < cost) return;
 
-  player.ether -= cost;
-  player.upgrades[id] = level + 1;
+  game.player.ether -= cost;
+  game.player.upgrades[id] = level + 1;
 
   applyUpgrades();
   saveGame();
 }
 
 function getLevel(id) {
-  if (!player.upgrades) return 0;
-  return player.upgrades[id] || 0;
+  if (!game.player.upgrades) return 0;
+  return game.player.upgrades[id] || 0;
 }
 
 function getUpgradesByCategory(category) {
@@ -547,16 +546,16 @@ function getEnemySpeed(type) {
 
   if (type === "square") {
     base = 1.0;
-    base += (t - 60) * 0.01 + player.enemySpeedMultiplier;
+    base += (t - 60) * 0.01 + game.player.enemySpeedMultiplier;
   }
 
   if (type === "pentagon") {
     base = 1.5;
-    base += (t - 120) * 0.015 + player.enemySpeedMultiplier;
+    base += (t - 120) * 0.015 + game.player.enemySpeedMultiplier;
   }
 
   if (type === "circle") {
-    base = 1.0 + t * 0.005 + player.enemySpeedMultiplier;
+    base = 1.0 + t * 0.005 + game.player.enemySpeedMultiplier;
   }
 
   return base;
@@ -567,7 +566,7 @@ function getSpawnRate() {
 
   // starts at 2000ms
   // decreases over time
-  return Math.max(200, 1500 - t * 10);
+  return Math.max(200, 200 - t * 10);
 }
 
 //
@@ -582,7 +581,7 @@ function drawHub() {
   ctx.textAlign = "center";
 
   ctx.fillText("HUB", canvas.width / 2, 80);
-  ctx.fillText("Ether: " + player.ether, canvas.width / 2, 120);
+  ctx.fillText("Ether: " + game.player.ether, canvas.width / 2, 120);
 
 
   ctx.textAlign = "left";
@@ -731,7 +730,7 @@ if (currentMenu === "mana") {
   ctx.font = "18px Arial";
   ctx.fillStyle = "#00ffff";
   ctx.fillText(
-    "Ether: " + player.ether,
+    "Ether: " + game.player.ether,
     canvas.width / 2 - 50,
     120
   );
@@ -755,7 +754,7 @@ if (currentMenu === "mana") {
 
     upgradeCards.push({ x, y, w: 280, h: 90, id });
 
-    ctx.fillStyle = player.ether >= cost ? "#222" : "#111";
+    ctx.fillStyle = game.player.ether >= cost ? "#222" : "#111";
     ctx.fillRect(x, y, 280, 90);
 
     ctx.strokeStyle = "white";
@@ -827,7 +826,7 @@ function drawUI() {
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
 
-  ctx.fillText("Ether: " + player.ether, 20, 30);
+  ctx.fillText("Ether: " + game.player.ether, 20, 30);
 
   // TIMER (top right)
   ctx.textAlign = "right";
@@ -1001,10 +1000,10 @@ if (
   castChainAttack({
   originX: orb.x,
   originY: orb.y,
-  damage: player.damage,
-  chainCount: player.chainCount,
-  chainRange: player.chainRange,
-  critChance: player.critChance,
+  damage: game.player.damage,
+  chainCount: game.player.chainCount,
+  chainRange: game.player.chainRange,
+  critChance: game.player.critChance,
   source: "manual"
 });
 }
@@ -1069,11 +1068,7 @@ function resetRun() {
 }
 
 function resetPlayer() {
-  player.ether = 0;
-  player.upgrades = {};
-
-  // reset derived stats (important)
-  applyUpgrades();
+  game.player = createPlayer();
 }
 
 function resetMeta() {
@@ -1099,8 +1094,8 @@ function startRun() {
 
 function saveGame() {
   const saveData = {
-    ether: player.ether,
-    upgrades: player.upgrades,
+    ether: game.player.ether,
+    upgrades: game.player.upgrades,
 
     // ========================
     // MANA SYSTEM
@@ -1110,36 +1105,38 @@ function saveGame() {
     difficultyMultiplier: game.meta.difficultyMultiplier
   };
 
-  localStorage.setItem("save", JSON.stringify(saveData));
+  localStorage.setItem(SaveKey, JSON.stringify(saveData));
 }
 
-function devResetGame() {
-  localStorage.removeItem("save");
+function devReset() {
+  localStorage.removeItem(SaveKey);
 
-  resetPlayer();
-  resetMeta();
-  resetRun();
+  game.player = createPlayer();
 
-  gameState = "hub";
-  currentMenu = null;
-
-  location.reload();
+  game.meta = {
+    mana: 0,
+    manaBreakpoints: 0,
+    difficultyMultiplier: 1
+  };
 }
 
 function loadGame() {
-  const data = localStorage.getItem("save");
-  if (!data) return;
+  const save = JSON.parse(localStorage.getItem(SaveKey));
 
-  const save = JSON.parse(data);
+  if (!save) return;
 
-  player.ether = save.ether || 0;
-  player.upgrades = save.upgrades ? save.upgrades : {};
+  // Always start from a clean player
+  game.player = createPlayer();
 
-  game.meta.mana = Number(save.mana) || 0;
-  game.meta.manaBreakpoints = Number(save.manaBreakpoints) || 0;
-  game.meta.difficultyMultiplier = Number(save.difficultyMultiplier) || 1;
+  // Then overwrite saved values
+  game.player.ether = save.ether || 0;
+  game.player.upgrades = save.upgrades || {};
 
-  applyUpgrades(); // ✅ ADD THIS
+  game.meta.mana = save.mana || 0;
+  game.meta.manaBreakpoints = save.manaBreakpoints || 0;
+  game.meta.difficultyMultiplier = save.difficultyMultiplier || 1;
+
+  applyUpgrades();
 }
 
 
@@ -1150,12 +1147,12 @@ function gameLoop() {
 // ========================
 if (DEV_FEATURES.manaDump && isDumpingEther && currentMenu === "mana") {
 
-  if (player.ether > 0) {
-  player.ether -= 1;
+  if (game.player.ether > 0) {
+  game.player.ether -= 1;
   game.meta.mana += 1;
   saveGame();
 
-  if (player.ether < 0) player.ether = 0;
+  if (game.player.ether < 0) game.player.ether = 0;
 }
 
   if (game.meta.mana >= 100) {
