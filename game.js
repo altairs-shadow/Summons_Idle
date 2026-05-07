@@ -56,7 +56,6 @@ let game = {
 
 const SaveKey = "save_V1"
 
-
 // ========================
 // GAME STATE
 // ========================
@@ -87,8 +86,6 @@ const orb = {
 let particles = [];
 let zapEffects = [];
 
-
-
 // ========================
 // DEV SYSTEMS (MANA DUMP)
 // ========================
@@ -97,7 +94,6 @@ const DEV_FEATURES = {
 };
 
 let isDumpingEther = false;
-
 
 // tuning values
 const MANA_DUMP_RATE = 1; // ether per frame tick (we will refine later)
@@ -108,57 +104,64 @@ const MANA_TARGET = 100;
 // ========================
 let enemies = [];
 let enemyId = 0;
-
 let lastSpawn = 0;
 
+
+const STAT_MODIFIERS = {
+  damage: 0,
+  chainCount: 0,
+  chainRange: 0,
+  critChance: 0,
+  enemySpeedMultiplier: 0,
+
+  autoDamage: 0,
+  autoChainCount: 0,
+  autoChainRange: 0,
+  autoCritChance: 0
+};
 // ========================
 // Upgrades
 // ========================
 const UPGRADES = {
   damage: {
-    name: "Additional Damage",
-    category: "click",
-    baseCost: 10,
-    apply: (player, level) => {
-      player.damage += level;
-    }
-  },
+  name: "Additional Damage",
+  category: "click",
+  baseCost: 10,
+  stat: "damage",
+  scale: (level) => level
+},
 
   chainCount: {
-    name: "Lightning Chains",
-    category: "click",
-    baseCost: 50,
-    apply: (player, level) => {
-      player.chainCount = 1 + level;
-    }
-  },
+  name: "Lightning Chains",
+  category: "click",
+  baseCost: 50,
+  stat: "chainCount",
+  scale: (level) => level
+},
 
   chainLength: {
-    name: "Chain Range",
-    category: "click",
-    baseCost: 75,
-    apply: (player, level) => {
-      player.chainRange = 200 + level * 60;
-    }
-  },
+  name: "Chain Range",
+  category: "click",
+  baseCost: 75,
+  stat: "chainRange",
+  scale: (level) => level * 60
+},
 
   crit: {
-    name: "Critical Clicks",
-    category: "click",
-    baseCost: 100,
-    apply: (player, level) => {
-      player.critChance = level * 0.05;
-    }
-  },
+  name: "Critical Clicks",
+  category: "click",
+  baseCost: 100,
+  stat: "critChance",
+  scale: (level) => level * 0.05
+},
 
   enemySpeed: {
-    name: "Enemy Speed Increase",
-    category: "click",
-    baseCost: 50,
-    apply: (player, level) => {
-      player.enemySpeedMultiplier = level * .1;
-    }
-  },
+  name: "Enemy Speed Increase",
+  category: "click",
+  baseCost: 50,
+  stat: "enemySpeedMultiplier",
+  scale: (level) => level * 0.1
+},
 
   //
   // Auto upgrades
@@ -167,59 +170,40 @@ const UPGRADES = {
   name: "Auto Clicker",
   category: "auto",
   baseCost: 20,
-  apply: (player, level) => {
-
-    // level 0 = disabled
-    if (level <= 0) {
-      player.autoEnabled = false;
-      return;
-    }
-
-    player.autoEnabled = true;
-
-    // attack speed improves per level
-    // starts at 1/sec
-    // lower = faster
-    player.autoAttackSpeed = Math.max(
-    100,
-    1000 - (level - 1) * 20
-    );
-  }
+  stat: "autoAttackSpeed",
+  scale: (level) => Math.max(100, 1000 - (level - 1) * 50)
 },
+
 autoDamage: {
   name: "Auto Damage",
   category: "auto",
   baseCost: 25,
-  apply: (player, level) => {
-    player.autoDamage = 1 + level;
-  }
+  stat: "autoDamage",
+  scale: (level) => level
 },
 
 autoChainCount: {
-  name: "Auto Chains",
+  name: "Auto Lightning Chains",
   category: "auto",
-  baseCost: 50,
-  apply: (player, level) => {
-    player.autoChainCount = 1 + level;
-  }
+  baseCost: 75,
+  stat: "autoLightningChains",
+  scale: (level) => level * 60
 },
 
 autoChainLength: {
   name: "Auto Chain Range",
   category: "auto",
   baseCost: 75,
-  apply: (player, level) => {
-    player.autoChainRange = 200 + level * 60;
-  }
+  stat: "autoChainRange",
+  scale: (level) => level * 60
 },
 
 autoCrit: {
-  name: "Auto Crit",
+  name: "Auto Critical Clicks",
   category: "auto",
   baseCost: 100,
-  apply: (player, level) => {
-    player.autoCritChance = level * 0.05;
-  }
+  stat: "autoCritChance",
+  scale: (level) => level * 0.05
 },
 
 };
@@ -477,15 +461,47 @@ function createLightning(x1, y1, x2, y2) {
 }
 
 function applyUpgrades() {
+
+  // reset base stats
   Object.assign(game.player, BASE_PLAYER_STATS);
 
-  for (let id in UPGRADES) {
-  const level = getLevel(id);
+  // reset modifiers
+  const mod = {
+    damage: 0,
+    chainCount: 0,
+    chainRange: 0,
+    critChance: 0,
+    enemySpeedMultiplier: 0,
 
-  if (level > 0) {
-    UPGRADES[id].apply(game.player, level);
+    autoDamage: 0,
+    autoChainCount: 0,
+    autoChainRange: 0,
+    autoCritChance: 0
+  };
+
+  // accumulate upgrades
+  for (let id in UPGRADES) {
+    const level = getLevel(id);
+    const upg = UPGRADES[id];
+
+    if (!level) continue;
+
+    if (upg.stat) {
+      mod[upg.stat] += upg.scale(level);
+    }
   }
-}
+
+  // apply modifiers to player
+  game.player.damage += mod.damage;
+  game.player.chainCount += mod.chainCount;
+  game.player.chainRange += mod.chainRange;
+  game.player.critChance += mod.critChance;
+  game.player.enemySpeedMultiplier += mod.enemySpeedMultiplier;
+
+  game.player.autoDamage += mod.autoDamage;
+  game.player.autoChainCount += mod.autoChainCount;
+  game.player.autoChainRange += mod.autoChainRange;
+  game.player.autoCritChance += mod.autoCritChance;
 }
 
 function getCost(id) {
