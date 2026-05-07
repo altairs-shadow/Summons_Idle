@@ -34,14 +34,15 @@ let particles = [];
 let zapEffects = [];
 
 // ========================
-// PLAYER (placeholder only)
+// PLAYER 
 // ========================
 let player = {
   ether: 0,
   damage: 1,
   chainCount: 1,
   chainRange: 200,
-  critChance: 0
+  critChance: 0,
+  enemySpeedMultiplier: 0
 };
 
 // ========================
@@ -51,10 +52,9 @@ let enemies = [];
 let enemyId = 0;
 
 let lastSpawn = 0;
-let spawnRate = 2000;
 
 // ========================
-//Enemies
+// Upgrades
 // ========================
 const UPGRADES = {
   damage: {
@@ -91,11 +91,20 @@ const UPGRADES = {
     apply: (player, level) => {
       player.critChance = level * 0.05;
     }
+  },
+
+  enemySpeed: {
+    name: "Enemy Speed Increase",
+    category: "click",
+    baseCost: 50,
+    apply: (player, level) => {
+      player.enemySpeedMultiplier = level * .1;
+    }
   }
 };
 
 let runStats = {
-  ghosts: 0,
+  circles: 0,
   squares: 0,
   pentagons: 0,
   ether: 0,
@@ -103,7 +112,7 @@ let runStats = {
 };
 
 let globalStats = {
-  ghosts: 0,
+  circles: 0,
   squares: 0,
   pentagons: 0,
   totalEther: 0,
@@ -153,7 +162,7 @@ function updateEnemies() {
     e.y += (dy / dist) * speed;
 
     if (dist < orb.radius + e.radius) {
-    globalStats.ghosts += runStats.ghosts;
+    globalStats.circles += runStats.circles;
     globalStats.squares += runStats.squares;
     globalStats.pentagons += runStats.pentagons;
     globalStats.totalEther += runStats.ether;
@@ -166,8 +175,6 @@ function updateEnemies() {
     if (e.flash > 0) e.flash--;
   }
 }
-
-
 
 function getClickedEnemy(x, y) {
   let closest = null;
@@ -216,7 +223,7 @@ function zapChainAttack() {
 
   runStats.ether += 1;
 
-  if (closest.type === "ghost") runStats.ghosts++;
+  if (closest.type === "circle") runStats.circles++;
   if (closest.type === "square") runStats.squares++;
   if (closest.type === "pentagon") runStats.pentagons++;
 }
@@ -256,6 +263,7 @@ function applyUpgrades() {
   player.chainCount = 1;
   player.chainRange = 200;
   player.critChance = 0;
+  player.enemySpeedMultiplier = 0;
 
   for (let id in UPGRADES) {
     const level = getLevel(id);
@@ -325,20 +333,28 @@ function getEnemySpeed(type) {
   let base = 1.0;
 
   if (type === "square") {
-    base = 1.2;
-    base += (t - 60) * 0.01;
+    base = 1.0;
+    base += (t - 60) * 0.01 + player.enemySpeedMultiplier;
   }
 
   if (type === "pentagon") {
     base = 1.5;
-    base += (t - 120) * 0.015;
+    base += (t - 120) * 0.015 + player.enemySpeedMultiplier;
   }
 
   if (type === "circle") {
-    base = 1.0 + t * 0.005;
+    base = 1.0 + t * 0.005 + player.enemySpeedMultiplier;
   }
 
   return base;
+}
+
+function getSpawnRate() {
+  const t = getRunTime();
+
+  // starts at 2000ms
+  // decreases over time
+  return Math.max(300, 2000 - t * 10);
 }
 
 //
@@ -498,14 +514,14 @@ function drawSummary() {
   ctx.fillText("Time: " + runStats.time.toFixed(1) + "s", canvas.width / 2, 200);
   ctx.fillText("Ether earned: " + runStats.ether, canvas.width / 2, 240);
 
-  ctx.fillText(`Ghosts killed: ${runStats.ghosts}`, canvas.width / 2, 300);
+  ctx.fillText(`Circles killed: ${runStats.circles}`, canvas.width / 2, 300);
   ctx.fillText(`Squares killed: ${runStats.squares}`, canvas.width / 2, 340);
   ctx.fillText(`Pentagons killed: ${runStats.pentagons}`, canvas.width / 2, 380);
 
   // BUTTON
   gameOverButton = {
     x: canvas.width / 2 - 120,
-    y: 450,
+    y: 650,
     w: 240,
     h: 60
   };
@@ -517,7 +533,7 @@ function drawSummary() {
   ctx.strokeRect(gameOverButton.x, gameOverButton.y, gameOverButton.w, gameOverButton.h);
 
   ctx.fillStyle = "white";
-  ctx.fillText("Return to Hub", canvas.width / 2, 488);
+  ctx.fillText("Return to Hub", canvas.width / 2, 688);
 
   ctx.textAlign = "left";
 }
@@ -714,7 +730,7 @@ function startRun() {
   runStartTimeStats = Date.now();
 
   runStats = {
-  ghosts: 0,
+  circles: 0,
   squares: 0,
   pentagons: 0,
   ether: 0,
@@ -758,6 +774,8 @@ function gameLoop() {
   runStats.time = runElapsed;
 
   if (lastSpawn === 0) lastSpawn = now;
+
+  const spawnRate = getSpawnRate();
 
   if (now - lastSpawn >= spawnRate) {
     spawnEnemy();
