@@ -292,21 +292,28 @@ function damageEnemy(target, damage) {
   return false;
 }
 
-function zapChainAttack() {
-
+function castChainAttack(config) {
   if (enemies.length === 0) return;
+
+  const {
+    originX,
+    originY,
+    damage,
+    chainCount,
+    chainRange,
+    critChance = 0,
+    source = "manual"
+  } = config;
 
   let current = null;
   let bestDist = Infinity;
 
-  // FIRST TARGET
+  // Find first target
   for (let e of enemies) {
-
-    const d = Math.hypot(e.x - orb.x, e.y - orb.y);
-
+    const d = Math.hypot(e.x - originX, e.y - originY);
     if (d < bestDist) {
-      current = e;
       bestDist = d;
+      current = e;
     }
   }
 
@@ -314,184 +321,44 @@ function zapChainAttack() {
 
   const hitEnemies = [];
 
-  for (let i = 0; i < player.chainCount; i++) {
+  for (let i = 0; i < chainCount; i++) {
 
     if (!current) break;
 
     hitEnemies.push(current);
 
-    damageEnemy(current, player.damage);
-
-    // SQUARE INTERRUPTS CHAIN
-    if (current.type === "square") {
-      break;
+    // Optional crit system (shared for both manual + auto)
+    let finalDamage = damage;
+    if (Math.random() < critChance) {
+      finalDamage *= 2;
     }
 
-    // FIND NEXT TARGET
-    let next = null;
-    let nextDist = Infinity;
-
-    for (let e of enemies) {
-
-      if (hitEnemies.includes(e)) continue;
-
-      const d = Math.hypot(
-        e.x - current.x,
-        e.y - current.y
-      );
-
-      if (
-        d < player.chainRange &&
-        d < nextDist
-      ) {
-        next = e;
-        nextDist = d;
-      }
-    }
+    damageEnemy(current, finalDamage);
 
     // VISUAL
     zapEffects.push({
       points: createLightning(
-        i === 0 ? orb.x : current.x,
-        i === 0 ? orb.y : current.y,
+        i === 0 ? originX : current.x,
+        i === 0 ? originY : current.y,
         current.x,
         current.y
       ),
       life: 12
     });
 
-    current = next;
-  }
-}
+    // SQUARE INTERRUPT RULE
+    if (current.type === "square") break;
 
-function autoAttack() {
-  if (!player.autoEnabled) return;
-  const now = Date.now();
-
-  if (now - player.lastAutoAttack < player.autoAttackSpeed) {
-    return;
-  }
-
-  player.lastAutoAttack = now;
-
-  if (enemies.length === 0) return;
-
-  let target = null;
-  let bestDist = Infinity;
-
-  for (let e of enemies) {
-
-    // Ignore enemies manual click would instantly kill
-    if (e.hp <= player.damage) continue;
-
-    const d = Math.hypot(e.x - orb.x, e.y - orb.y);
-
-    if (d < bestDist) {
-      target = e;
-      bestDist = d;
-    }
-  }
-
-  // fallback if every enemy is weak
-  if (!target) {
-    target = enemies[0];
-  }
-
-  zapEffects.push({
-    points: createLightning(
-      orb.x,
-      orb.y,
-      target.x,
-      target.y
-    ),
-    life: 12
-  });
-
-  damageEnemy(target, player.autoDamage);
-}
-
-function autoZapAttack() {
-  if (player.autoAttackSpeed < 250) {
-    player.autoAttackSpeed = 250;
-  }
-  if (!player.autoEnabled) return;
-  if (enemies.length === 0) return;
-
-  const now = Date.now();
-
-  if (now - player.lastAutoAttack < player.autoAttackSpeed) {
-    return;
-  }
-
-  player.lastAutoAttack = now;
-
-  let current = null;
-  let bestDist = Infinity;
-
-  // =========================
-  // FIND FIRST TARGET
-  // =========================
-  for (let e of enemies) {
-    const d = Math.hypot(e.x - orb.x, e.y - orb.y);
-
-    if (d < bestDist) {
-      bestDist = d;
-      current = e;
-    }
-  }
-
-  if (!current) return;
-
-  const hitEnemies = [];
-
-  // =========================
-  // CHAIN LOOP
-  // =========================
-  for (let i = 0; i < player.autoChainCount; i++) {
-
-    if (!current) break;
-
-    hitEnemies.push(current);
-
-    // ⚡ VISUAL ZAP
-    zapEffects.push({
-      points: createLightning(
-        i === 0 ? orb.x : current.x,
-        i === 0 ? orb.y : current.y,
-        current.x,
-        current.y
-      ),
-      life: 12
-    });
-
-    // 💥 DAMAGE
-    damageEnemy(current, player.autoDamage);
-
-    // 🚫 SQUARE INTERRUPT RULE
-    // If a square is hit, chain STOPS immediately
-    if (current.type === "square") {
-      break;
-    }
-
-    // =========================
-    // FIND NEXT TARGET
-    // =========================
+    // Find next target
     let next = null;
     let nextDist = Infinity;
 
     for (let e of enemies) {
-
       if (hitEnemies.includes(e)) continue;
 
-      const d = Math.hypot(
-        e.x - current.x,
-        e.y - current.y
-      );
+      const d = Math.hypot(e.x - current.x, e.y - current.y);
 
-      if (
-        d < player.autoChainRange &&
-        d < nextDist
-      ) {
+      if (d < chainRange && d < nextDist) {
         next = e;
         nextDist = d;
       }
@@ -499,6 +366,27 @@ function autoZapAttack() {
 
     current = next;
   }
+}
+
+function autoZapAttack() {
+  if (!player.autoEnabled) return;
+  if (enemies.length === 0) return;
+
+  const now = Date.now();
+
+  if (now - player.autoLastAttack < player.autoAttackSpeed) return;
+
+  player.autoLastAttack = now;
+
+  castChainAttack({
+    originX: orb.x,
+    originY: orb.y,
+    damage: player.autoDamage,
+    chainCount: player.autoChainCount,
+    chainRange: player.autoChainRange,
+    critChance: player.autoCritChance,
+    source: "auto"
+  });
 }
 
 function createLightning(x1, y1, x2, y2) {
@@ -977,7 +865,15 @@ canvas.addEventListener("click", (e) => {
 
   if (enemies.length === 0) return;
 
-  zapChainAttack();
+  castChainAttack({
+  originX: orb.x,
+  originY: orb.y,
+  damage: player.damage,
+  chainCount: player.chainCount,
+  chainRange: player.chainRange,
+  critChance: player.critChance,
+  source: "manual"
+});
 }
 
 if (gameState === "summary" && gameOverButton) {
