@@ -21,6 +21,7 @@ let upgradeCards = [];
 let backButton = null;
 let startButton = null;
 let gameOverButton = null;
+let devResetButton = null;
 
 // ========================
 // GAME OBJECTS
@@ -57,7 +58,25 @@ let player = {
   autoChainCount: 1,
   autoChainRange: 200,
   autoCritChance: 0,
+
 };
+
+// ========================
+// DEV SYSTEMS (MANA DUMP)
+// ========================
+const DEV_FEATURES = {
+  manaDump: true
+};
+
+let mana = 0;
+let isDumpingEther = false;
+
+let manaBreakpoints = 0; // how many times player hit 100 mana
+let difficultyMultiplier = 1;
+
+// tuning values
+const MANA_DUMP_RATE = 1; // ether per frame tick (we will refine later)
+const MANA_TARGET = 100;
 
 // ========================
 //Enemies
@@ -194,6 +213,17 @@ let globalStats = {
   pentagons: 0,
   totalEther: 0,
   runs: 0
+  
+};
+
+// ========================
+// ACHIEVEMENT TRACKING
+// ========================
+let achievements = {
+  etherDumpTotal: 0,
+  manaBreakpoints: 0,
+  longestRun: 0,
+  maxDifficulty: 1
 };
 
 
@@ -268,6 +298,10 @@ function getClickedEnemy(x, y) {
   return closest;
 }
 
+function cleanNumber(n) {
+  return Math.round(n);
+}
+
 function damageEnemy(target, damage) {
 
   if (!target) return false;
@@ -279,7 +313,7 @@ function damageEnemy(target, damage) {
 
     enemies = enemies.filter(e => e.id !== target.id);
 
-    player.ether += 1;
+    player.ether += cleanNumber(1 * difficultyMultiplier);
     runStats.ether += 1;
 
     if (target.type === "circle") runStats.circles++;
@@ -490,7 +524,7 @@ function getEnemyHP(type) {
   if (type === "pentagon") base = 4;
 
   // global scaling over time
-  return Math.floor(base + t * 0.1);
+  return Math.floor((base + t * 0.1) * difficultyMultiplier);
 }
 
 function getEnemySpeed(type) {
@@ -537,6 +571,7 @@ function drawHub() {
   ctx.fillText("HUB", canvas.width / 2, 80);
   ctx.fillText("Ether: " + player.ether, canvas.width / 2, 120);
 
+
   ctx.textAlign = "left";
 
   menuButtons = [];
@@ -569,6 +604,28 @@ function drawHub() {
     ctx.font = "18px Arial";
     ctx.fillText(key.toUpperCase(), x + 20, y + 45);
   });
+  // ========================
+// DEV RESET BUTTON (BOTTOM RIGHT)
+// ========================
+devResetButton = {
+  x: canvas.width - 160,
+  y: canvas.height - 70,
+  w: 140,
+  h: 50
+};
+
+ctx.fillStyle = "#aa0000";
+ctx.fillRect(devResetButton.x, devResetButton.y, devResetButton.w, devResetButton.h);
+
+ctx.strokeStyle = "white";
+ctx.strokeRect(devResetButton.x, devResetButton.y, devResetButton.w, devResetButton.h);
+
+ctx.fillStyle = "white";
+ctx.font = "14px Arial";
+ctx.textAlign = "center";
+ctx.fillText("DEV RESET", devResetButton.x + 70, devResetButton.y + 30);
+
+ctx.textAlign = "left";
 
   drawStartButton();
 }
@@ -608,13 +665,62 @@ function drawMenu() {
   ctx.textAlign = "center";
   ctx.fillText(currentMenu.toUpperCase(), canvas.width / 2, 80);
 
+  // ========================
+// DEV: MANA MENU
+// ========================
+if (currentMenu === "mana") {
+
+  ctx.textAlign = "center";
+
+  ctx.fillStyle = "#00ffff";
+  ctx.font = "22px Arial";
+
+  ctx.fillText(
+    `Mana: ${Math.floor(mana)} / 100`,
+    canvas.width / 2,
+    160
+  );
+
+  ctx.fillText(
+    `Difficulty Multiplier: x${difficultyMultiplier.toFixed(1)}`,
+    canvas.width / 2,
+    190
+  );
+
+  // BAR BACKGROUND
+  ctx.fillStyle = "#222";
+  ctx.fillRect(canvas.width / 2 - 200, 220, 400, 20);
+
+  // BAR FILL
+  ctx.fillStyle = "#00ffff";
+  ctx.fillRect(
+    canvas.width / 2 - 200,
+    220,
+    (mana / 100) * 400,
+    20
+  );
+
+  // HOLD BUTTON
+  ctx.fillStyle = isDumpingEther ? "#ff4444" : "#00cccc";
+  ctx.fillRect(canvas.width / 2 - 120, 280, 240, 60);
+
+  ctx.fillStyle = "black";
+  ctx.fillText(
+    isDumpingEther ? "DUMPING..." : "HOLD TO DUMP ETHER",
+    canvas.width / 2,
+    318
+  );
+
+  ctx.textAlign = "left";
+}
+
   // Ether display under title
   ctx.font = "18px Arial";
   ctx.fillStyle = "#00ffff";
   ctx.fillText(
     "Ether: " + player.ether,
-    canvas.width / 2,
-    110
+    canvas.width / 2 - 50,
+    120
   );
 
   ctx.textAlign = "left";
@@ -805,6 +911,20 @@ canvas.addEventListener("click", (e) => {
   // HUB CLICK
   // ======================
   if (gameState === "hub") {
+    // DEV RESET BUTTON
+if (
+  devResetButton &&
+  mx > devResetButton.x &&
+  mx < devResetButton.x + devResetButton.w &&
+  my > devResetButton.y &&
+  my < devResetButton.y + devResetButton.h
+) {
+  const confirmReset = confirm("DEV RESET: wipe ALL progress?");
+  if (confirmReset) {
+    devResetGame();
+  }
+  return;
+}
   for (let b of menuButtons) {
     if (
       mx > b.x && mx < b.x + b.w &&
@@ -892,6 +1012,29 @@ if (gameState === "summary" && gameOverButton) {
 });
 
 
+// ========================
+// MOUSE HOLD FOR MANA DUMP
+// ========================
+canvas.addEventListener("mousedown", (e) => {
+  if (!DEV_FEATURES.manaDump) return;
+
+  // only allow dumping in hub or menu (not gameplay unless you want later)
+  if (gameState !== "menu") return;
+
+  if (currentMenu !== "mana") return;
+
+  isDumpingEther = true;
+});
+
+canvas.addEventListener("mouseup", (e) => {
+  isDumpingEther = false;
+});
+
+canvas.addEventListener("mouseleave", () => {
+  isDumpingEther = false;
+});
+
+
 //
 // Additional functions
 //
@@ -919,10 +1062,58 @@ function startRun() {
 function saveGame() {
   const saveData = {
     ether: player.ether,
-    upgrades: player.upgrades
+    upgrades: player.upgrades,
+
+    // ========================
+    // MANA SYSTEM
+    // ========================
+    mana,
+    manaBreakpoints,
+    difficultyMultiplier
   };
 
   localStorage.setItem("save", JSON.stringify(saveData));
+}
+
+function devResetGame() {
+  // wipe save
+  localStorage.removeItem("save");
+
+  // reset player
+  player.ether = 0;
+  player.upgrades = {};
+
+  // reset mana system
+  mana = 0;
+  manaBreakpoints = 0;
+  difficultyMultiplier = 1;
+
+  // reset stats
+  runStats = {
+    circles: 0,
+    squares: 0,
+    pentagons: 0,
+    ether: 0,
+    time: 0
+  };
+
+  globalStats = {
+    circles: 0,
+    squares: 0,
+    pentagons: 0,
+    totalEther: 0,
+    runs: 0
+  };
+
+  // reset enemies / run state
+  enemies = [];
+  enemyId = 0;
+
+  gameState = "hub";
+  currentMenu = null;
+
+  // force fresh start feel
+  location.reload();
 }
 
 function loadGame() {
@@ -933,16 +1124,46 @@ function loadGame() {
 
   player.ether = save.ether || 0;
   player.upgrades = save.upgrades || {};
+
+  // ========================
+  // MANA SYSTEM RESTORE
+  // ========================
+  mana = Number(save.mana) || 0;
+  manaBreakpoints = Number(save.manaBreakpoints) || 0;
+  difficultyMultiplier = Number(save.difficultyMultiplier) || 1;
 }
+
 
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // ========================
+// DEV: MANA DUMP UPDATE (GLOBAL)
+// ========================
+if (DEV_FEATURES.manaDump && isDumpingEther && currentMenu === "mana") {
+
+  if (player.ether > 0) {
+  player.ether -= 1;
+  mana += 1;
+  saveGame();
+
+  if (player.ether < 0) player.ether = 0;
+}
+
+  if (mana >= 100) {
+    mana -= 100;
+    manaBreakpoints++;
+
+    difficultyMultiplier = Math.pow(1.25, manaBreakpoints);
+
+    console.log("Mana breakpoint:", manaBreakpoints);
+  }
+}
 
   if (gameState === "hub") drawHub();
   if (gameState === "menu") drawMenu();
 
   if (gameState === "playing") {
-
+  
   const now = Date.now();
   runElapsed = (Date.now() - runStartTime) / 1000;
   runStats.time = runElapsed;
