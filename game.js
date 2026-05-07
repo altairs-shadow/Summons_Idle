@@ -4,6 +4,20 @@ const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
+const BASE_PLAYER_STATS = {
+  damage: 1,
+  chainCount: 1,
+  chainRange: 200,
+  critChance: 0,
+  enemySpeedMultiplier: 0,
+
+  autoEnabled: false,
+  autoAttackSpeed: 1000,
+  autoDamage: 1,
+  autoChainCount: 1,
+  autoChainRange: 200,
+  autoCritChance: 0
+};
 
 function createPlayer() {
   return {
@@ -106,7 +120,7 @@ const UPGRADES = {
     category: "click",
     baseCost: 10,
     apply: (player, level) => {
-      player.damage = 1 + level;
+      player.damage += level;
     }
   },
 
@@ -167,8 +181,8 @@ const UPGRADES = {
     // starts at 1/sec
     // lower = faster
     player.autoAttackSpeed = Math.max(
-      1000,
-      1000 - (level - 1) * 50
+    100,
+    1000 - (level - 1) * 20
     );
   }
 },
@@ -463,23 +477,15 @@ function createLightning(x1, y1, x2, y2) {
 }
 
 function applyUpgrades() {
-  // reset derived stats
-  game.player.damage = 1;
-  game.player.chainCount = 1;
-  game.player.chainRange = 200;
-  game.player.critChance = 0;
-  game.player.enemySpeedMultiplier = 0;
-  game.player.autoEnabled = false;
-  game.player.autoAttackSpeed = 1000;
-  game.player.autoDamage = 1;
-  game.player.autoChainCount = 1;
-  game.player.autoChainRange = 200;
-  game.player.autoCritChance = 0;
+  Object.assign(game.player, BASE_PLAYER_STATS);
 
   for (let id in UPGRADES) {
-    const level = getLevel(id);
+  const level = getLevel(id);
+
+  if (level > 0) {
     UPGRADES[id].apply(game.player, level);
   }
+}
 }
 
 function getCost(id) {
@@ -555,7 +561,7 @@ function getEnemySpeed(type) {
   }
 
   if (type === "circle") {
-    base = 1.0 + t * 0.005 + game.player.enemySpeedMultiplier;
+    base = 1.0 + t * 0.02 + game.player.enemySpeedMultiplier;
   }
 
   return base;
@@ -566,7 +572,7 @@ function getSpawnRate() {
 
   // starts at 2000ms
   // decreases over time
-  return Math.max(200, 200 - t * 10);
+  return Math.max(200, 1500 - t * 20);
 }
 
 //
