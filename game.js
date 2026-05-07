@@ -1036,11 +1036,11 @@ canvas.addEventListener("mouseleave", () => {
   isDumpingEther = false;
 });
 
+// ========================
+// RESET SYSTEM (REFACTOR STEP 1)
+// ========================
 
-//
-// Additional functions
-//
-function startRun() {
+function resetRun() {
   enemies = [];
   enemyId = 0;
 
@@ -1049,16 +1049,41 @@ function startRun() {
   runStartTimeStats = Date.now();
 
   runStats = {
-  circles: 0,
-  squares: 0,
-  pentagons: 0,
-  ether: 0,
-  time: 0
-};
+    circles: 0,
+    squares: 0,
+    pentagons: 0,
+    ether: 0,
+    time: 0
+  };
+}
 
-  gameState = "playing";
+function resetPlayer() {
+  player.ether = 0;
+  player.upgrades = {};
 
+  // reset derived stats (important)
   applyUpgrades();
+}
+
+function resetMeta() {
+  mana = 0;
+  manaBreakpoints = 0;
+  difficultyMultiplier = 1;
+
+  globalStats = {
+    circles: 0,
+    squares: 0,
+    pentagons: 0,
+    totalEther: 0,
+    runs: 0
+  };
+}
+//
+// Additional functions
+//
+function startRun() {
+  resetRun();
+  gameState = "playing";
 }
 
 function saveGame() {
@@ -1078,43 +1103,15 @@ function saveGame() {
 }
 
 function devResetGame() {
-  // wipe save
   localStorage.removeItem("save");
 
-  // reset player
-  player.ether = 0;
-  player.upgrades = {};
-
-  // reset mana system
-  mana = 0;
-  manaBreakpoints = 0;
-  difficultyMultiplier = 1;
-
-  // reset stats
-  runStats = {
-    circles: 0,
-    squares: 0,
-    pentagons: 0,
-    ether: 0,
-    time: 0
-  };
-
-  globalStats = {
-    circles: 0,
-    squares: 0,
-    pentagons: 0,
-    totalEther: 0,
-    runs: 0
-  };
-
-  // reset enemies / run state
-  enemies = [];
-  enemyId = 0;
+  resetPlayer();
+  resetMeta();
+  resetRun();
 
   gameState = "hub";
   currentMenu = null;
 
-  // force fresh start feel
   location.reload();
 }
 
@@ -1127,12 +1124,11 @@ function loadGame() {
   player.ether = save.ether || 0;
   player.upgrades = save.upgrades ? save.upgrades : {};
 
-  // ========================
-  // MANA SYSTEM RESTORE
-  // ========================
   mana = Number(save.mana) || 0;
   manaBreakpoints = Number(save.manaBreakpoints) || 0;
   difficultyMultiplier = Number(save.difficultyMultiplier) || 1;
+
+  applyUpgrades(); // ✅ ADD THIS
 }
 
 
