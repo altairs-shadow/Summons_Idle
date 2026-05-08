@@ -65,15 +65,6 @@ let runStartTime = Date.now();
 let runStartTimeStats = 0;
 let runElapsed = 0;
 
-// ========================
-// UI STORAGE
-// ========================
-let menuButtons = [];
-let upgradeCards = [];
-let backButton = null;
-let startButton = null;
-let gameOverButton = null;
-let devResetButton = null;
 
 // ========================
 // GAME OBJECTS
@@ -106,6 +97,17 @@ let enemies = [];
 let enemyId = 0;
 let lastSpawn = 0;
 
+const UI = {
+  buttons: {
+    menu: [],
+    upgrades: [],
+    start: null,
+    back: null,
+    devReset: null
+  }
+};
+
+let gameOverButton = null; // keep this for now (we’ll refactor later)
 
 const STAT_MODIFIERS = {
   damage: 0,
@@ -417,9 +419,9 @@ function autoZapAttack() {
 
   const now = Date.now();
 
-  if (now - game.player.LastAutoAttack < game.player.autoAttackSpeed) return;
+  if (now - game.player.lastAutoAttack < game.player.autoAttackSpeed) return;
 
-  game.player.LastAutoAttack = now;
+  game.player.lastAutoAttack = now;
 
   castChainAttack({
     originX: orb.x,
@@ -502,6 +504,9 @@ function applyUpgrades() {
   game.player.autoChainCount += mod.autoChainCount;
   game.player.autoChainRange += mod.autoChainRange;
   game.player.autoCritChance += mod.autoCritChance;
+
+  // Enable auto clicker if purchased
+game.player.autoEnabled = getLevel("autoClicker") > 0;
 }
 
 function getCost(id) {
@@ -608,7 +613,7 @@ function drawHub() {
 
   ctx.textAlign = "left";
 
-  menuButtons = [];
+  UI.buttons.menu = [];
 
   const categories = [
   "click",
@@ -626,7 +631,7 @@ function drawHub() {
     const x = startX + (i % 3) * 300;
     const y = startY + Math.floor(i / 3) * 120;
 
-    menuButtons.push({ x, y, w: 220, h: 80, key });
+    UI.buttons.menu.push({ x, y, w: 220, h: 80, key });
 
     ctx.fillStyle = "#222";
     ctx.fillRect(x, y, 220, 80);
@@ -641,7 +646,7 @@ function drawHub() {
   // ========================
 // DEV RESET BUTTON (BOTTOM RIGHT)
 // ========================
-devResetButton = {
+UI.buttons.devReset = {
   x: canvas.width - 160,
   y: canvas.height - 70,
   w: 140,
@@ -649,15 +654,15 @@ devResetButton = {
 };
 
 ctx.fillStyle = "#aa0000";
-ctx.fillRect(devResetButton.x, devResetButton.y, devResetButton.w, devResetButton.h);
+ctx.fillRect(UI.buttons.devReset.x, UI.buttons.devReset.y, UI.buttons.devReset.w, UI.buttons.devReset.h);
 
 ctx.strokeStyle = "white";
-ctx.strokeRect(devResetButton.x, devResetButton.y, devResetButton.w, devResetButton.h);
+ctx.strokeRect(UI.buttons.devReset.x, UI.buttons.devReset.y, UI.buttons.devReset.w, UI.buttons.devReset.h);
 
 ctx.fillStyle = "white";
 ctx.font = "14px Arial";
 ctx.textAlign = "center";
-ctx.fillText("DEV RESET", devResetButton.x + 70, devResetButton.y + 30);
+ctx.fillText("DEV RESET", UI.buttons.devReset.x + 70, UI.buttons.devReset.y + 30);
 
 ctx.textAlign = "left";
 
@@ -665,7 +670,7 @@ ctx.textAlign = "left";
 }
 
 function drawStartButton() {
-  startButton = {
+  UI.buttons.start = {
     x: canvas.width - 220,
     y: 20,
     w: 180,
@@ -673,12 +678,12 @@ function drawStartButton() {
   };
 
   ctx.fillStyle = "#00cccc";
-  ctx.fillRect(startButton.x, startButton.y, startButton.w, startButton.h);
+  ctx.fillRect(UI.buttons.start.x, UI.buttons.start.y, UI.buttons.start.w, UI.buttons.start.h);
 
   ctx.fillStyle = "black";
   ctx.font = "18px Arial";
   ctx.textAlign = "center";
-  ctx.fillText("START RUN", startButton.x + 90, startButton.y + 32);
+  ctx.fillText("START RUN", UI.buttons.start.x + 90, UI.buttons.start.y + 32);
   ctx.textAlign = "left";
 }
 
@@ -686,10 +691,10 @@ function drawMenu() {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  backButton = { x: 20, y: 20, w: 120, h: 50 };
+  UI.buttons.back = { x: 20, y: 20, w: 120, h: 50 };
 
   ctx.fillStyle = "#444";
-  ctx.fillRect(backButton.x, backButton.y, backButton.w, backButton.h);
+  ctx.fillRect(UI.buttons.back.x, UI.buttons.back.y, UI.buttons.back.w, UI.buttons.back.h);
 
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
@@ -760,7 +765,7 @@ if (currentMenu === "mana") {
   ctx.textAlign = "left";
   ctx.fillStyle = "white";
 
-  upgradeCards = [];
+  UI.buttons.upgrades = [];
 
   const upgrades = getUpgradesByCategory(currentMenu);
 
@@ -774,7 +779,7 @@ if (currentMenu === "mana") {
     const x = 200 + (i % 2) * 320;
     const y = 150 + Math.floor(i / 2) * 120;
 
-    upgradeCards.push({ x, y, w: 280, h: 90, id });
+    UI.buttons.upgrades.push({ x, y, w: 280, h: 90, id });
 
     ctx.fillStyle = game.player.ether >= cost ? "#222" : "#111";
     ctx.fillRect(x, y, 280, 90);
@@ -931,11 +936,11 @@ canvas.addEventListener("click", (e) => {
   // ======================
   // START BUTTON
   // ======================
-  if (startButton &&
-      mx > startButton.x &&
-      mx < startButton.x + startButton.w &&
-      my > startButton.y &&
-      my < startButton.y + startButton.h) {
+  if (UI.buttons.start &&
+      mx > UI.buttons.start.x &&
+      mx < UI.buttons.start.x + UI.buttons.start.w &&
+      my > UI.buttons.start.y &&
+      my < UI.buttons.start.y + UI.buttons.start.h) {
 
     startRun();
     return;
@@ -947,19 +952,19 @@ canvas.addEventListener("click", (e) => {
   if (gameState === "hub") {
     // DEV RESET BUTTON
 if (
-  devResetButton &&
-  mx > devResetButton.x &&
-  mx < devResetButton.x + devResetButton.w &&
-  my > devResetButton.y &&
-  my < devResetButton.y + devResetButton.h
+  UI.buttons.devReset &&
+  mx > UI.buttons.devReset.x &&
+  mx < UI.buttons.devReset.x + UI.buttons.devReset.w &&
+  my > UI.buttons.devReset.y &&
+  my < UI.buttons.devReset.y + UI.buttons.devReset.h
 ) {
   const confirmReset = confirm("DEV RESET: wipe ALL progress?");
   if (confirmReset) {
-    devResetGame();
+    devReset();
   }
   return;
 }
-  for (let b of menuButtons) {
+  for (let b of UI.buttons.menu) {
     if (
       mx > b.x && mx < b.x + b.w &&
       my > b.y && my < b.y + b.h
@@ -984,16 +989,16 @@ if (
 
   // BACK BUTTON
   if (
-    backButton &&
-    mx > backButton.x && mx < backButton.x + backButton.w &&
-    my > backButton.y && my < backButton.y + backButton.h
+    UI.buttons.back &&
+    mx > UI.buttons.back.x && mx < UI.buttons.back.x + UI.buttons.back.w &&
+    my > UI.buttons.back.y && my < UI.buttons.back.y + UI.buttons.back.h
   ) {
     gameState = "hub";
     return;
   }
 
   // UPGRADE CARDS
-  for (let c of upgradeCards) {
+  for (let c of UI.buttons.upgrades) {
     if (
       mx > c.x && mx < c.x + c.w &&
       my > c.y && my < c.y + c.h
@@ -1181,7 +1186,7 @@ if (DEV_FEATURES.manaDump && isDumpingEther && currentMenu === "mana") {
     game.meta.mana -= 100;
     game.meta.manaBreakpoints++;
 
-    difficultyMultiplier = Math.pow(1.25, game.meta.manaBreakpoints);
+    game.meta.difficultyMultiplier = Math.pow(1.25, game.meta.manaBreakpoints);
 
     console.log("Mana breakpoint:", game.meta.manaBreakpoints);
   }
